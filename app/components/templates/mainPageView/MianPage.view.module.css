@@ -1,0 +1,561 @@
+/* ─── CSS Variables ──────────────────────────────────────────────────────────── */
+:root {
+  --bg: #0a0b0d;
+  --surface: #0f1114;
+  --surface2: #161a1f;
+  --border: #252b33;
+  --border-bright: #3a4452;
+  --accent: #e8ff47;
+  --accent2: #47ffd4;
+  --text: #c8d4e0;
+  --text-dim: #5a6a7a;
+  --text-bright: #eaf2ff;
+  --error: #ff4747;
+  --success: #47ff8a;
+  --font-mono: "IBM Plex Mono", "Courier New", monospace;
+  --font-display: "Space Mono", "IBM Plex Mono", monospace;
+}
+
+/* ─── Layout ─────────────────────────────────────────────────────────────────── */
+.main {
+  min-height: 100vh;
+  background: var(--bg);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 48px 16px 80px;
+  position: relative;
+  font-family: var(--font-mono);
+  color: var(--text);
+  overflow-x: hidden;
+}
+
+/* Grid background */
+.grid {
+  position: fixed;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(232, 255, 71, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(232, 255, 71, 0.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.container {
+  width: 100%;
+  max-width: 680px;
+  position: relative;
+  z-index: 1;
+}
+
+/* ─── Header ─────────────────────────────────────────────────────────────────── */
+.header {
+  margin-bottom: 40px;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.logoIcon {
+  font-size: 28px;
+  color: var(--accent);
+  line-height: 1;
+  animation: pulse 3s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+.logoText {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.25em;
+  color: var(--text-bright);
+}
+
+.tagline {
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.8;
+  border-left: 2px solid var(--border-bright);
+  padding-left: 14px;
+  margin: 0;
+}
+
+/* ─── Dropzone ───────────────────────────────────────────────────────────────── */
+.dropzone {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 2px;
+  padding: 48px 32px;
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+  position: relative;
+  overflow: hidden;
+  outline: none;
+}
+
+.dropzone::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 4px;
+  height: 100%;
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.dropzone:hover,
+.dropzone:focus {
+  border-color: var(--border-bright);
+  background: var(--surface2);
+}
+
+.dropzone:hover::before,
+.dropzone:focus::before {
+  opacity: 0.6;
+}
+
+.dropzone.dragOver {
+  border-color: var(--accent);
+  background: var(--surface2);
+}
+
+.dropzone.dragOver::before {
+  opacity: 1;
+}
+
+.dropzone.hasFile {
+  border-color: var(--border-bright);
+}
+
+.hiddenInput {
+  display: none;
+}
+
+/* Empty state */
+.dropContent {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.dropIcon {
+  font-size: 36px;
+  color: var(--accent);
+  font-weight: 300;
+  line-height: 1;
+  animation: bounce 2s ease-in-out infinite;
+}
+
+@keyframes bounce {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+.dropPrimary {
+  font-size: 16px;
+  color: var(--text-bright);
+  margin: 0;
+  letter-spacing: 0.05em;
+}
+
+.dropSecondary {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin: 0;
+}
+
+/* File selected state */
+.fileInfo {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.fileIcon {
+  font-size: 28px;
+  color: var(--accent2);
+  flex-shrink: 0;
+}
+
+.fileMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.fileName {
+  font-size: 14px;
+  color: var(--text-bright);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fileSize {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.chunkBadge {
+  font-size: 11px;
+  padding: 4px 10px;
+  background: rgba(232, 255, 71, 0.08);
+  border: 1px solid rgba(232, 255, 71, 0.25);
+  color: var(--accent);
+  border-radius: 2px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ─── Upload button ──────────────────────────────────────────────────────────── */
+.uploadBtn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  margin-top: 16px;
+  padding: 18px 28px;
+  background: var(--accent);
+  color: var(--bg);
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  border-radius: 2px;
+  transition:
+    background 0.1s,
+    transform 0.1s;
+}
+
+.uploadBtn:hover {
+  background: #f0ff6a;
+  transform: translateY(-1px);
+}
+
+.uploadBtn:active {
+  transform: translateY(0);
+}
+
+.btnArrow {
+  font-size: 18px;
+}
+
+/* ─── Progress ───────────────────────────────────────────────────────────────── */
+.progressWrap {
+  margin-top: 20px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.progressBar {
+  flex: 1;
+  height: 4px;
+  background: var(--surface2);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent2), var(--accent));
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.progressLabel {
+  font-size: 12px;
+  color: var(--accent);
+  min-width: 36px;
+  text-align: right;
+}
+
+/* ─── Error ──────────────────────────────────────────────────────────────────── */
+.errorBox {
+  margin-top: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  border: 1px solid var(--error);
+  background: rgba(255, 71, 71, 0.06);
+  border-radius: 2px;
+  font-size: 13px;
+  color: var(--error);
+}
+
+.errorIcon {
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.retryBtn {
+  margin-left: auto;
+  padding: 6px 16px;
+  background: transparent;
+  border: 1px solid var(--error);
+  color: var(--error);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  cursor: pointer;
+  border-radius: 2px;
+  letter-spacing: 0.05em;
+  transition: background 0.1s;
+}
+
+.retryBtn:hover {
+  background: rgba(255, 71, 71, 0.12);
+}
+
+/* ─── Results ────────────────────────────────────────────────────────────────── */
+.results {
+  border: 1px solid var(--border-bright);
+  background: var(--surface);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.resultHeader {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 24px 28px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface2);
+}
+
+.resultIcon {
+  font-size: 28px;
+  color: var(--success);
+  line-height: 1;
+}
+
+.resultTitle {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-bright);
+  margin: 0 0 4px;
+  word-break: break-all;
+}
+
+.resultSub {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin: 0;
+}
+
+/* Hash row */
+.hashRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px 28px;
+  border-bottom: 1px solid var(--border);
+}
+
+.hashLabel {
+  font-size: 10px;
+  letter-spacing: 0.15em;
+  color: var(--text-dim);
+  padding-top: 2px;
+  flex-shrink: 0;
+}
+
+.hashValue {
+  font-size: 11px;
+  color: var(--accent2);
+  word-break: break-all;
+  line-height: 1.6;
+}
+
+/* Section label */
+.sectionLabel {
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  color: var(--text-dim);
+  margin: 0 0 12px;
+}
+
+/* Chunk list */
+.chunkList {
+  padding: 20px 28px;
+  border-bottom: 1px solid var(--border);
+}
+
+.chunkRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.chunkRow:last-child {
+  border-bottom: none;
+}
+
+.chunkMeta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.chunkIdx {
+  font-size: 11px;
+  color: var(--accent);
+  min-width: 28px;
+}
+
+.chunkHash {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+}
+
+.chunkSize {
+  font-size: 11px;
+  color: var(--text);
+}
+
+.chunkExpiry {
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-left: auto;
+}
+
+.chunkLink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border-bright);
+  color: var(--accent2);
+  text-decoration: none;
+  font-size: 16px;
+  border-radius: 2px;
+  flex-shrink: 0;
+  transition:
+    background 0.1s,
+    border-color 0.1s;
+}
+
+.chunkLink:hover {
+  background: rgba(71, 255, 212, 0.08);
+  border-color: var(--accent2);
+}
+
+/* Single link */
+.singleLink {
+  padding: 20px 28px;
+  border-bottom: 1px solid var(--border);
+}
+
+.linkRow {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.linkCode {
+  font-size: 11px;
+  color: var(--text-dim);
+  word-break: break-all;
+  flex: 1;
+}
+
+.dlBtn {
+  padding: 10px 20px;
+  background: transparent;
+  border: 1px solid var(--accent2);
+  color: var(--accent2);
+  text-decoration: none;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  border-radius: 2px;
+  white-space: nowrap;
+  transition: background 0.1s;
+}
+
+.dlBtn:hover {
+  background: rgba(71, 255, 212, 0.1);
+}
+
+/* Actions */
+.actions {
+  display: flex;
+  gap: 12px;
+  padding: 20px 28px;
+  flex-wrap: wrap;
+}
+
+.manifestBtn {
+  padding: 12px 24px;
+  background: var(--accent);
+  color: var(--bg);
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  border-radius: 2px;
+  transition: background 0.1s;
+}
+
+.manifestBtn:hover {
+  background: #f0ff6a;
+}
+
+.newUploadBtn {
+  padding: 12px 24px;
+  background: transparent;
+  border: 1px solid var(--border-bright);
+  color: var(--text);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  border-radius: 2px;
+  letter-spacing: 0.05em;
+  transition:
+    border-color 0.1s,
+    color 0.1s;
+}
+
+.newUploadBtn:hover {
+  border-color: var(--text);
+  color: var(--text-bright);
+}
