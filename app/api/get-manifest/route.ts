@@ -12,7 +12,7 @@ export async function GET(req: Request) {
 
   const data = await s3.send(
     new GetObjectCommand({
-      Bucket: process.env.AWS_BUCKET_NAME!,
+      Bucket: process.env.LIARA_BUCKET_NAME!,
       Key: key,
     }),
   );

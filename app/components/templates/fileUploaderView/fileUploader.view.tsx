@@ -2,12 +2,14 @@
 
 import { useState } from "react";
 import axios from "axios";
+import { useSearchParams } from "next/navigation";
 
 export default function FileUploaderView() {
   const [file, setFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState<boolean>(false);
   const [error, setError] = useState(false);
   const [uploadMessage, setUploadMessage] = useState<string | null>(null);
+  const searchParams = useSearchParams();
 
   const handleFileChange = (event) => {
     setFile(event.target.files[0]);
@@ -31,6 +33,10 @@ export default function FileUploaderView() {
           "Content-Type": "multipart/form-data",
         },
       });
+
+      const sp = new URLSearchParams(searchParams);
+      sp.set("key", res.data.manifestKey);
+      window.history.replaceState(null, "", `?${sp.toString()}`);
 
       setUploadMessage(res.data.message);
     } catch (err) {
