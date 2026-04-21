@@ -3,6 +3,9 @@ import { S3Client } from "@aws-sdk/client-s3";
 export const CHUNK_SIZE = 10 * 1024 * 1024; // 10 MB in bytes
 export const SIGNED_URL_EXPIRY = 60 * 60 * 24; // 24 hours in seconds (each link expiration)
 
+export const MAX_RETRIES = 3; // attempts per chunk before giving up
+export const RETRY_BASE_MS = 500;
+
 export const s3 = new S3Client({
   region: "default",
   endpoint: process.env.LIARA_ENDPOINT,

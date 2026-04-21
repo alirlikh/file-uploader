@@ -2,7 +2,7 @@
 
 import { useRef, useState, useCallback } from "react";
 import styles from "./MianPage.view.module.css";
-import { UploadResult, UploadState } from "@/utils/types";
+import { ChunkLiveState, UploadResult, UploadState } from "@/utils/types";
 import { downloadText, formatBytes } from "@/utils/helpers";
 
 // ─── COMPONENT ─────────────────────────────────────────────────────────────────
@@ -11,7 +11,10 @@ export default function UploadPage() {
   const [dragOver, setDragOver] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [state, setState] = useState<UploadState>("idle");
-  const [progress, setProgress] = useState(0);
+  const [percent, setPercent] = useState(0);
+  const [chunksTotal, setChunksTotal] = useState(0);
+  const [chunksDone, setChunksDone] = useState(0);
+  const [chunkLive, setChunkLive] = useState<ChunkLiveState[]>([]);
   const [result, setResult] = useState<UploadResult | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
 
@@ -21,6 +24,8 @@ export default function UploadPage() {
     setState("idle");
     setResult(null);
     setErrorMsg("");
+    setPercent(0);
+    setChunkLive([]);
   };
 
   const onInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -35,38 +40,148 @@ export default function UploadPage() {
     if (f) handleFile(f);
   }, []);
 
-  // ── Upload ──────────────────────────────────────────────────────────────────
+  // ── Real SSE upload ──────────────────────────────────────────────────────────
   const upload = async () => {
     if (!selectedFile) return;
     setState("uploading");
-    setProgress(0);
+    setPercent(0);
+    setChunksDone(0);
 
-    // Fake progress animation while waiting (real progress needs multipart XHR)
-    const ticker = setInterval(() => {
-      setProgress((p) => Math.min(p + Math.random() * 8, 90));
-    }, 300);
+    const expectedChunks = Math.max(
+      1,
+      Math.ceil(selectedFile.size / (10 * 1024 * 1024)),
+    );
+    setChunksTotal(expectedChunks);
+
+    // Initialise all chunks as "pending"
+    setChunkLive(
+      Array.from({ length: expectedChunks }, () => ({
+        status: "pending" as ChunkStatus,
+        attempt: 0,
+        maxAttempts: 3,
+      })),
+    );
+
+    const formData = new FormData();
+    formData.append("file", selectedFile);
 
     try {
-      const formData = new FormData();
-      formData.append("file", selectedFile);
-
       const res = await fetch("/api/upload", {
         method: "POST",
         body: formData,
       });
-      clearInterval(ticker);
 
-      if (!res.ok) {
-        const err = await res.json();
+      if (!res.ok || !res.body) {
+        const err = await res.json().catch(() => ({}));
         throw new Error(err.error ?? "Upload failed");
       }
 
-      const data: UploadResult = await res.json();
-      setProgress(100);
-      setResult(data);
-      setState("done");
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      // Mark the first chunk as uploading immediately
+      setChunkLive((prev) => {
+        const next = [...prev];
+        if (next[0]) next[0] = { ...next[0], status: "uploading", attempt: 1 };
+        return next;
+      });
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          let event: Record<string, unknown>;
+          try {
+            event = JSON.parse(line.slice(6));
+          } catch {
+            continue;
+          }
+
+          const { type } = event;
+
+          if (type === "progress") {
+            const {
+              chunkIndex,
+              done: d,
+              total,
+              percent: p,
+            } = event as {
+              chunkIndex: number;
+              done: number;
+              total: number;
+              percent: number;
+            };
+            setChunksTotal(total);
+            setChunksDone(d);
+            setPercent(p);
+
+            setChunkLive((prev) => {
+              const next = [...prev];
+              // Mark this chunk done
+              if (next[chunkIndex]) {
+                next[chunkIndex] = { ...next[chunkIndex], status: "done" };
+              }
+              // Mark next chunk uploading
+              if (next[chunkIndex + 1]) {
+                next[chunkIndex + 1] = {
+                  ...next[chunkIndex + 1],
+                  status: "uploading",
+                  attempt: 1,
+                };
+              }
+              return next;
+            });
+          } else if (type === "retry") {
+            const { chunkIndex, attempt } = event as {
+              chunkIndex: number;
+              attempt: number;
+            };
+            setChunkLive((prev) => {
+              const next = [...prev];
+              if (next[chunkIndex]) {
+                next[chunkIndex] = {
+                  ...next[chunkIndex],
+                  status: "retrying",
+                  attempt: attempt + 1,
+                };
+              }
+              return next;
+            });
+          } else if (type === "chunkError") {
+            // Transient error — server will retry; we just update the attempt counter
+            const { chunkIndex, attempt } = event as {
+              chunkIndex: number;
+              attempt: number;
+            };
+            setChunkLive((prev) => {
+              const next = [...prev];
+              if (next[chunkIndex]) {
+                next[chunkIndex] = {
+                  ...next[chunkIndex],
+                  status: "retrying",
+                  attempt,
+                };
+              }
+              return next;
+            });
+          } else if (type === "done") {
+            const r = (event as { result: UploadResult }).result;
+            setPercent(100);
+            setResult(r);
+            setState("done");
+          } else if (type === "fatal") {
+            throw new Error((event as { message: string }).message);
+          }
+        }
+      }
     } catch (err: unknown) {
-      clearInterval(ticker);
       setErrorMsg(err instanceof Error ? err.message : "Unknown error");
       setState("error");
     }
@@ -76,7 +191,8 @@ export default function UploadPage() {
     setSelectedFile(null);
     setResult(null);
     setState("idle");
-    setProgress(0);
+    setPercent(0);
+    setChunkLive([]);
     setErrorMsg("");
     if (inputRef.current) inputRef.current.value = "";
   };
