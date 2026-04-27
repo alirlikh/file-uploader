@@ -13,7 +13,6 @@
   --font-mono: "IBM Plex Mono", "Courier New", monospace;
   --font-display: "Space Mono", "IBM Plex Mono", monospace;
 }
-
 .main {
   min-height: 100vh;
   display: flex;
@@ -24,7 +23,6 @@
   padding: 24px;
   position: relative;
 }
-
 .grid {
   position: fixed;
   inset: 0;
@@ -34,19 +32,25 @@
   background-size: 40px 40px;
   pointer-events: none;
 }
-
-.card {
+.wrap {
+  display: flex;
+  gap: 28px;
   width: 100%;
-  max-width: 420px;
+  max-width: 820px;
+  align-items: flex-start;
+  position: relative;
+  z-index: 1;
+  flex-wrap: wrap;
+}
+.card {
+  flex: 1;
+  min-width: 320px;
   background: var(--surface);
   border: 1px solid var(--border-bright);
   border-radius: 2px;
-  padding: 40px 36px;
+  padding: 36px 32px;
   position: relative;
-  z-index: 1;
 }
-
-/* accent left border */
 .card::before {
   content: "";
   position: absolute;
@@ -57,16 +61,14 @@
   background: var(--accent);
   border-radius: 2px 0 0 2px;
 }
-
 .logo {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 32px;
+  margin-bottom: 28px;
 }
-
 .logoIcon {
-  font-size: 24px;
+  font-size: 22px;
   color: var(--accent);
   animation: pulse 3s ease-in-out infinite;
 }
@@ -79,22 +81,18 @@
     opacity: 0.5;
   }
 }
-
 .logoText {
   font-family: var(--font-display);
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 700;
   letter-spacing: 0.22em;
   color: var(--text-bright);
 }
-
-/* mode tabs */
 .modeTabs {
   display: flex;
-  margin-bottom: 28px;
+  margin-bottom: 24px;
   border-bottom: 1px solid var(--border);
 }
-
 .modeTab {
   flex: 1;
   padding: 10px 0;
@@ -118,34 +116,29 @@
   color: var(--accent);
   border-bottom-color: var(--accent);
 }
-
-/* fields */
 .fields {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  margin-bottom: 20px;
+  gap: 14px;
+  margin-bottom: 18px;
 }
-
 .field {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
-
 .label {
   font-size: 10px;
   letter-spacing: 0.18em;
   color: var(--text-dim);
 }
-
 .input {
   background: var(--surface2);
   border: 1px solid var(--border-bright);
   color: var(--text-bright);
   font-family: var(--font-mono);
   font-size: 13px;
-  padding: 12px 14px;
+  padding: 11px 13px;
   border-radius: 2px;
   outline: none;
   transition: border-color 0.12s;
@@ -157,28 +150,24 @@
 .input::placeholder {
   color: var(--text-dim);
 }
-
-/* error */
 .errorBox {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 12px 14px;
+  padding: 11px 13px;
   border: 1px solid var(--error);
   background: rgba(255, 71, 71, 0.06);
   border-radius: 2px;
   font-size: 12px;
   color: var(--error);
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
-
-/* submit */
 .submitBtn {
   display: flex;
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  padding: 16px 24px;
+  padding: 15px 22px;
   background: var(--accent);
   color: var(--bg);
   border: none;
@@ -191,7 +180,7 @@
   transition:
     background 0.1s,
     transform 0.1s;
-  margin-bottom: 20px;
+  margin-bottom: 18px;
 }
 .submitBtn:hover:not(:disabled) {
   background: #f0ff6a;
@@ -202,11 +191,10 @@
   cursor: not-allowed;
   transform: none;
 }
-
 .spinner {
   display: inline-block;
-  width: 14px;
-  height: 14px;
+  width: 13px;
+  height: 13px;
   border: 2px solid rgba(0, 0, 0, 0.3);
   border-top-color: var(--bg);
   border-radius: 50%;
@@ -217,15 +205,12 @@
     transform: rotate(360deg);
   }
 }
-
-/* note */
 .note {
   font-size: 11px;
   color: var(--text-dim);
   text-align: center;
   margin: 0;
 }
-
 .switchBtn {
   background: none;
   border: none;
@@ -238,4 +223,52 @@
 }
 .switchBtn:hover {
   color: var(--accent);
+}
+/* Plans sidebar */
+.plans {
+  width: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 4px;
+}
+.plansTitle {
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  color: var(--text-dim);
+  margin: 0 0 4px;
+}
+.planCard {
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--plan-color, var(--border));
+  border-radius: 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.planHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.planName {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+.planPrice {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.planQuota {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.plansNote {
+  font-size: 10px;
+  color: var(--text-dim);
+  margin: 4px 0 0;
+  line-height: 1.6;
 }

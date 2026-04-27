@@ -4,16 +4,19 @@ import { useRef, useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import styles from "./MainPage.view.module.css";
 
-// ─── TYPES ─────────────────────────────────────────────────────────────────────
+// ── TYPES ─────────────────────────────────────────────────────────────────────
 interface SessionUser {
   id: string;
   email: string;
   name: string;
+  isAdmin: boolean;
+  plan: string;
+  planLabel: string;
+  planColor: string;
   dailyUsed: number;
   dailyLimit: number;
   dailyRemaining: number;
 }
-
 interface ChunkResult {
   chunkIndex: number;
   hash: string;
@@ -21,7 +24,6 @@ interface ChunkResult {
   expiresAt: string;
   sizeBytes: number;
 }
-
 interface StoredFile {
   id: string;
   originalFilename: string;
@@ -33,7 +35,6 @@ interface StoredFile {
   reconstructorUrl: string;
   chunks: (ChunkResult & { chunkKey: string })[];
 }
-
 interface UploadResult {
   success: boolean;
   fileId: string;
@@ -45,17 +46,15 @@ interface UploadResult {
   reconstructorUrl: string;
   manifest: string;
 }
-
 type ChunkStatus = "pending" | "uploading" | "done" | "retrying" | "error";
-interface ChunkLiveState {
+interface ChunkLive {
   status: ChunkStatus;
   attempt: number;
-  maxAttempts: number;
 }
 type UploadState = "idle" | "uploading" | "done" | "error";
 type Tab = "upload" | "files" | "combiner";
 type CombinerMode = "files" | "urls";
-interface UrlChunkEntry {
+interface UrlEntry {
   id: string;
   url: string;
   label: string;
@@ -64,125 +63,132 @@ interface UrlChunkEntry {
   errorMsg?: string;
 }
 
-// ─── HELPERS ───────────────────────────────────────────────────────────────────
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024)
-    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-}
-
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleString(undefined, {
+// ── HELPERS ───────────────────────────────────────────────────────────────────
+const fmt = (b: number) =>
+  b >= 1e12
+    ? `${(b / 1e12).toFixed(2)} TB`
+    : b >= 1e9
+      ? `${(b / 1e9).toFixed(2)} GB`
+      : b >= 1e6
+        ? `${(b / 1e6).toFixed(2)} MB`
+        : b >= 1e3
+          ? `${(b / 1e3).toFixed(1)} KB`
+          : `${b} B`;
+const fmtDate = (iso: string) =>
+  new Date(iso).toLocaleString(undefined, {
     month: "short",
     day: "numeric",
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
   });
-}
-
-function downloadText(content: string, filename: string) {
-  const blob = new Blob([content], { type: "text/plain" });
-  const url = URL.createObjectURL(blob);
+const dlText = (txt: string, name: string) => {
+  const b = new Blob([txt], { type: "text/plain" });
+  const u = URL.createObjectURL(b);
   const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
+  a.href = u;
+  a.download = name;
   a.click();
-  URL.revokeObjectURL(url);
-}
+  URL.revokeObjectURL(u);
+};
 
 function inferExt(name: string): string {
-  const stripped = name
+  const s = name
     .replace(/[._-](part|chunk|p|c)\d+$/i, "")
     .replace(/\.\d+$/, "");
-  const dot = stripped.lastIndexOf(".");
-  return dot > 0 ? stripped.slice(dot) : "";
+  const d = s.lastIndexOf(".");
+  return d > 0 ? s.slice(d) : "";
 }
-
-function filenameFromUrl(url: string): string {
+function urlFilename(url: string): string {
   try {
     const u = new URL(url);
-    const qf =
-      u.searchParams.get("filename") ??
-      u.searchParams.get("response-content-disposition");
+    const qf = u.searchParams.get("filename");
     if (qf) {
       const m = qf.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/i);
       if (m) return decodeURIComponent(m[1].replace(/['"]/g, "").trim());
       return decodeURIComponent(qf);
     }
-    const seg = u.pathname.split("/").filter(Boolean).pop() ?? "";
-    return decodeURIComponent(seg);
+    return decodeURIComponent(
+      u.pathname.split("/").filter(Boolean).pop() ?? "",
+    );
   } catch {
     return "";
   }
 }
 
-// ─── QUOTA BAR ────────────────────────────────────────────────────────────────
+// ── QUOTA BAR ─────────────────────────────────────────────────────────────────
 function QuotaBar({ user }: { user: SessionUser }) {
   const pct = Math.min(
     100,
     Math.round((user.dailyUsed / user.dailyLimit) * 100),
   );
-  const isHigh = pct >= 80;
+  const hi = pct >= 80;
   return (
     <div className={styles.quotaWrap}>
       <div className={styles.quotaMeta}>
-        <span className={styles.quotaLabel}>Daily quota</span>
-        <span
-          className={`${styles.quotaVal} ${isHigh ? styles.quotaHigh : ""}`}
-        >
-          {formatBytes(user.dailyUsed)} / {formatBytes(user.dailyLimit)}
+        <div className={styles.quotaLeft}>
+          <span className={styles.quotaLabel}>Daily quota</span>
+          <span
+            className={styles.planBadge}
+            style={{ borderColor: user.planColor, color: user.planColor }}
+          >
+            {user.planLabel}
+          </span>
+        </div>
+        <span className={`${styles.quotaVal} ${hi ? styles.quotaHigh : ""}`}>
+          {fmt(user.dailyUsed)} / {fmt(user.dailyLimit)}
         </span>
       </div>
       <div className={styles.quotaBar}>
         <div
-          className={`${styles.quotaFill} ${isHigh ? styles.quotaFillHigh : ""}`}
+          className={`${styles.quotaFill} ${hi ? styles.quotaFillHigh : ""}`}
           style={{ width: `${pct}%` }}
         />
       </div>
-      {pct >= 100 && (
-        <p className={styles.quotaExhausted}>
-          Limit reached — resets at midnight UTC.
-        </p>
-      )}
+      <div className={styles.quotaFooter}>
+        <span className={styles.quotaRemaining}>
+          {fmt(user.dailyRemaining)} remaining
+        </span>
+        {pct >= 100 && (
+          <span className={styles.quotaExhausted}>Resets at midnight UTC</span>
+        )}
+      </div>
     </div>
   );
 }
 
-// ─── MY FILES TAB ─────────────────────────────────────────────────────────────
+// ── MY FILES TAB ──────────────────────────────────────────────────────────────
 function FilesTab({ onRefresh }: { onRefresh: () => void }) {
   const [files, setFiles] = useState<StoredFile[]>([]);
   const [loading, setLoading] = useState(true);
-  const [deletingId, setDelId] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState<string | null>(null);
+  const [delId, setDelId] = useState<string | null>(null);
+  const [expanded, setExp] = useState<string | null>(null);
+  const router = useRouter();
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch("/api/files");
       if (res.status === 401) {
-        window.location.href = "/auth";
+        router.push("/auth");
         return;
       }
-      const data = await res.json();
-      setFiles(data.files ?? []);
+      setFiles((await res.json()).files ?? []);
     } catch {
       setFiles([]);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [router]);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  const deleteFile = async (id: string) => {
+  const del = async (id: string) => {
     setDelId(id);
     await fetch(`/api/files?id=${id}`, { method: "DELETE" });
-    setFiles((f) => f.filter((x) => x.id !== id));
+    setFiles((p) => p.filter((f) => f.id !== id));
     setDelId(null);
     onRefresh();
   };
@@ -190,12 +196,11 @@ function FilesTab({ onRefresh }: { onRefresh: () => void }) {
   if (loading)
     return (
       <div className={styles.centerMsg}>
-        <span className={styles.spinnerDot} />
-        <span>Loading files…</span>
+        <span className={styles.spinDot} />
+        <span>Loading…</span>
       </div>
     );
-
-  if (files.length === 0)
+  if (!files.length)
     return (
       <div className={styles.centerMsg}>
         <span style={{ fontSize: 36, opacity: 0.3 }}>◈</span>
@@ -206,20 +211,19 @@ function FilesTab({ onRefresh }: { onRefresh: () => void }) {
   return (
     <div className={styles.fileList}>
       {files.map((f) => {
-        const isOpen = expanded === f.id;
+        const open = expanded === f.id;
         return (
           <div key={f.id} className={styles.fileCard}>
-            {/* Summary row */}
             <div
               className={styles.fileCardRow}
-              onClick={() => setExpanded(isOpen ? null : f.id)}
+              onClick={() => setExp(open ? null : f.id)}
             >
               <span className={styles.fileCardIcon}>◈</span>
               <div className={styles.fileCardBody}>
                 <p className={styles.fileCardName}>{f.originalFilename}</p>
                 <p className={styles.fileCardMeta}>
-                  {formatBytes(f.fileSizeBytes)} · {f.totalChunks} chunk
-                  {f.totalChunks !== 1 ? "s" : ""} · {formatDate(f.uploadedAt)}
+                  {fmt(f.fileSizeBytes)} · {f.totalChunks} chunk
+                  {f.totalChunks !== 1 ? "s" : ""} · {fmtDate(f.uploadedAt)}
                 </p>
               </div>
               <div className={styles.fileCardActions}>
@@ -227,7 +231,7 @@ function FilesTab({ onRefresh }: { onRefresh: () => void }) {
                   href={f.reconstructorUrl}
                   className={styles.iconBtn}
                   download={f.originalFilename}
-                  title="Download reconstructed"
+                  title="Download"
                   onClick={(e) => e.stopPropagation()}
                 >
                   ↓
@@ -236,19 +240,17 @@ function FilesTab({ onRefresh }: { onRefresh: () => void }) {
                   className={`${styles.iconBtn} ${styles.iconBtnDanger}`}
                   onClick={(e) => {
                     e.stopPropagation();
-                    deleteFile(f.id);
+                    del(f.id);
                   }}
-                  disabled={deletingId === f.id}
+                  disabled={delId === f.id}
                   title="Delete"
                 >
-                  {deletingId === f.id ? "…" : "✕"}
+                  {delId === f.id ? "…" : "✕"}
                 </button>
-                <span className={styles.expandArrow}>{isOpen ? "▲" : "▼"}</span>
+                <span className={styles.expandArrow}>{open ? "▲" : "▼"}</span>
               </div>
             </div>
-
-            {/* Expanded: chunk links */}
-            {isOpen && (
+            {open && (
               <div className={styles.fileCardDetail}>
                 <div className={styles.hashRow}>
                   <span className={styles.hashLabel}>SHA-256</span>
@@ -270,7 +272,7 @@ function FilesTab({ onRefresh }: { onRefresh: () => void }) {
                         {c.hash.slice(0, 16)}…
                       </span>
                       <span className={styles.chunkSize}>
-                        {formatBytes(c.sizeBytes)}
+                        {fmt(c.sizeBytes)}
                       </span>
                       <span className={styles.chunkExpiry}>
                         exp {new Date(c.expiresAt).toLocaleString()}
@@ -295,216 +297,353 @@ function FilesTab({ onRefresh }: { onRefresh: () => void }) {
   );
 }
 
-// ─── UPLOAD TAB ───────────────────────────────────────────────────────────────
+// ── UPLOAD TAB ────────────────────────────────────────────────────────────────
+/**
+ * Browser-direct-to-S3 upload flow — file body NEVER passes through Next.js:
+ *
+ *  1. Compute SHA-256 + slice plan client-side (Web Crypto, no server round-trip)
+ *  2. POST /api/upload/presign  — auth + quota check, returns presigned PUT URLs
+ *  3. PUT each chunk directly to S3 via XHR (real per-byte progress)
+ *  4. POST /api/upload/complete — verify chunks in S3, persist DB, return links
+ */
 function UploadTab({
   user,
-  onUploadDone,
+  onDone,
 }: {
   user: SessionUser;
-  onUploadDone: () => void;
+  onDone: () => void;
 }) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [dragOver, setDragOver] = useState(false);
-  const [selectedFile, setSel] = useState<File | null>(null);
-  const [state, setState] = useState<UploadState>("idle");
-  const [percent, setPercent] = useState(0);
-  const [chunksTotal, setTotal] = useState(0);
-  const [chunksDone, setDone] = useState(0);
-  const [chunkLive, setChunkLive] = useState<ChunkLiveState[]>([]);
-  const [result, setResult] = useState<UploadResult | null>(null);
-  const [errorMsg, setError] = useState("");
+  const ref = useRef<HTMLInputElement>(null);
+  const router = useRouter();
+  const abortRef = useRef<AbortController | null>(null);
 
-  const handleFile = (f: File) => {
+  const [drag, setDrag] = useState(false);
+  const [sel, setSel] = useState<File | null>(null);
+  const [state, setState] = useState<UploadState>("idle");
+  const [pct, setPct] = useState(0);
+  const [total, setTotal] = useState(0);
+  const [done, setDone] = useState(0);
+  const [live, setLive] = useState<ChunkLive[]>([]);
+  const [result, setResult] = useState<UploadResult | null>(null);
+  const [err, setErr] = useState("");
+  // Speed + ETA — driven by real XHR progress events
+  const [speedLabel, setSpeed] = useState("");
+  const [etaLabel, setEta] = useState("");
+  const [bytesUp, setBytesUp] = useState(0);
+  const [totalBytes, setTotalBytes] = useState(0);
+
+  const CHUNK_SIZE = 10 * 1024 * 1024; // must match server constant
+  const MAX_RETRIES = 3;
+
+  const fmtSpeed = (bps: number) =>
+    bps >= 1e9
+      ? `${(bps / 1e9).toFixed(1)} GB/s`
+      : bps >= 1e6
+        ? `${(bps / 1e6).toFixed(1)} MB/s`
+        : bps >= 1e3
+          ? `${(bps / 1e3).toFixed(0)} KB/s`
+          : `${Math.round(bps)} B/s`;
+  const fmtEta = (s: number) =>
+    !isFinite(s) || s < 0
+      ? "–"
+      : s >= 3600
+        ? `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`
+        : s >= 60
+          ? `${Math.floor(s / 60)}m ${Math.floor(s % 60)}s`
+          : `${Math.floor(s)}s`;
+
+  /** Compute SHA-256 of a File using Web Crypto (no server round-trip). */
+  async function sha256Hex(file: File): Promise<string> {
+    const buf = await file.arrayBuffer();
+    const digest = await crypto.subtle.digest("SHA-256", buf);
+    return Array.from(new Uint8Array(digest))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+  }
+
+  /**
+   * Upload one chunk directly to S3 via XHR so we get real onprogress events.
+   * Returns a promise that resolves when the PUT completes.
+   * Calls onProgress(bytesLoaded) as bytes flow.
+   */
+  function xhrPut(
+    url: string,
+    blob: Blob,
+    mimeType: string,
+    onProgress: (loaded: number) => void,
+    signal: AbortSignal,
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      signal.addEventListener("abort", () => {
+        xhr.abort();
+        reject(new DOMException("Aborted", "AbortError"));
+      });
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) onProgress(e.loaded);
+      };
+      xhr.onload = () =>
+        xhr.status >= 200 && xhr.status < 300
+          ? resolve()
+          : reject(new Error(`S3 PUT failed: HTTP ${xhr.status}`));
+      xhr.onerror = () =>
+        reject(new Error("Network error during chunk upload"));
+      xhr.ontimeout = () => reject(new Error("Chunk upload timed out"));
+      xhr.open("PUT", url);
+      xhr.setRequestHeader("Content-Type", mimeType);
+      xhr.send(blob);
+    });
+  }
+
+  const pick = (f: File) => {
     setSel(f);
     setState("idle");
     setResult(null);
-    setError("");
-    setPercent(0);
-    setChunkLive([]);
+    setErr("");
+    setPct(0);
+    setLive([]);
+    setSpeed("");
+    setEta("");
+    setBytesUp(0);
   };
-
   const onDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
-    setDragOver(false);
+    setDrag(false);
     const f = e.dataTransfer.files?.[0];
-    if (f) handleFile(f);
+    if (f) pick(f);
   }, []);
 
   const upload = async () => {
-    if (!selectedFile) return;
-    if (selectedFile.size > user.dailyRemaining) {
-      setError(
-        `File (${formatBytes(selectedFile.size)}) exceeds your remaining daily quota (${formatBytes(user.dailyRemaining)}).`,
+    if (!sel) return;
+    if (sel.size > user.dailyRemaining) {
+      setErr(
+        `File (${fmt(sel.size)}) exceeds your remaining daily quota (${fmt(user.dailyRemaining)}).`,
       );
       setState("error");
       return;
     }
 
+    const abort = new AbortController();
+    abortRef.current = abort;
     setState("uploading");
-    setPercent(0);
+    setPct(0);
     setDone(0);
-    const expected = Math.max(
-      1,
-      Math.ceil(selectedFile.size / (10 * 1024 * 1024)),
-    );
-    setTotal(expected);
-    setChunkLive(
-      Array.from({ length: expected }, () => ({
+    setBytesUp(0);
+    setSpeed("");
+    setEta("–");
+
+    const numChunks = Math.max(1, Math.ceil(sel.size / CHUNK_SIZE));
+    setTotal(numChunks);
+    setTotalBytes(sel.size);
+    setLive(
+      Array.from({ length: numChunks }, () => ({
         status: "pending" as ChunkStatus,
         attempt: 0,
-        maxAttempts: 3,
       })),
     );
 
-    const formData = new FormData();
-    formData.append("file", selectedFile);
-
     try {
-      const res = await fetch("/api/upload", {
+      // ── Step 0: compute SHA-256 client-side ────────────────────────────────
+      const fileHash = await sha256Hex(sel);
+
+      // ── Step 1: get presigned PUT URLs from server ─────────────────────────
+      const presignRes = await fetch("/api/upload/presign", {
         method: "POST",
-        body: formData,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          filename: sel.name,
+          fileSizeBytes: sel.size,
+          mimeType: sel.type || "application/octet-stream",
+          fileHash,
+          totalChunks: numChunks,
+        }),
+        signal: abort.signal,
       });
-      if (res.status === 401) {
-        window.location.href = "/auth";
+
+      if (presignRes.status === 401) {
+        router.push("/auth");
         return;
       }
-      if (res.status === 429) {
-        const d = await res.json();
-        setError(d.error ?? "Quota exceeded.");
+      if (presignRes.status === 429) {
+        const d = await presignRes.json();
+        setErr(d.error ?? "Quota exceeded.");
         setState("error");
         return;
       }
-      if (!res.ok || !res.body) {
-        const d = await res.json().catch(() => ({}));
-        throw new Error(d.error ?? "Upload failed");
+      if (!presignRes.ok) {
+        const d = await presignRes.json().catch(() => ({}));
+        throw new Error(d.error ?? "Failed to initiate upload.");
       }
 
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buf = "";
+      const { uploadId, chunks: chunkPlan } = (await presignRes.json()) as {
+        uploadId: string;
+        chunks: {
+          chunkIndex: number;
+          putUrl: string;
+          chunkKey: string;
+          chunkHash: string;
+          sizeBytes: number;
+        }[];
+      };
 
-      setChunkLive((p) => {
-        const n = [...p];
-        if (n[0]) n[0] = { ...n[0], status: "uploading", attempt: 1 };
-        return n;
-      });
+      // ── Step 2: PUT each chunk directly to S3 ─────────────────────────────
+      // Track per-chunk loaded bytes for combined progress
+      const chunkLoaded = new Array(numChunks).fill(0) as number[];
+      const startMs = Date.now();
 
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buf += decoder.decode(value, { stream: true });
-        const lines = buf.split("\n\n");
-        buf = lines.pop() ?? "";
+      const uploadChunk = async (c: (typeof chunkPlan)[number]) => {
+        const { chunkIndex, putUrl, sizeBytes } = c;
+        const start = chunkIndex * CHUNK_SIZE;
+        const blob = sel.slice(start, start + sizeBytes);
+        const mime = sel.type || "application/octet-stream";
 
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          let ev: Record<string, unknown>;
+        setLive((p) => {
+          const n = [...p];
+          if (n[chunkIndex])
+            n[chunkIndex] = { status: "uploading", attempt: 1 };
+          return n;
+        });
+
+        for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
           try {
-            ev = JSON.parse(line.slice(6));
-          } catch {
-            continue;
-          }
+            if (attempt > 0) {
+              setLive((p) => {
+                const n = [...p];
+                if (n[chunkIndex])
+                  n[chunkIndex] = { status: "retrying", attempt: attempt + 1 };
+                return n;
+              });
+              await new Promise<void>((r) =>
+                setTimeout(r, 500 * Math.pow(2, attempt - 1)),
+              );
+            }
 
-          if (ev.type === "progress") {
-            const {
-              chunkIndex: ci,
-              done: d,
-              total: t,
-              percent: p,
-            } = ev as {
-              chunkIndex: number;
-              done: number;
-              total: number;
-              percent: number;
-            };
-            setTotal(t);
-            setDone(d);
-            setPercent(p);
-            setChunkLive((prev) => {
-              const n = [...prev];
-              if (n[ci]) n[ci] = { ...n[ci], status: "done" };
-              if (n[ci + 1])
-                n[ci + 1] = { ...n[ci + 1], status: "uploading", attempt: 1 };
-              return n;
-            });
-          } else if (ev.type === "retry") {
-            const { chunkIndex: ci, attempt: a } = ev as {
-              chunkIndex: number;
-              attempt: number;
-            };
-            setChunkLive((p) => {
+            await xhrPut(
+              putUrl,
+              blob,
+              mime,
+              (loaded) => {
+                chunkLoaded[chunkIndex] = loaded;
+                const totalUploaded = chunkLoaded.reduce((a, b) => a + b, 0);
+                const elapsedSec = (Date.now() - startMs) / 1000;
+                const speedBps =
+                  elapsedSec > 0 ? totalUploaded / elapsedSec : 0;
+                const remaining = sel.size - totalUploaded;
+                const etaSec = speedBps > 0 ? remaining / speedBps : Infinity;
+
+                setBytesUp(totalUploaded);
+                setPct(Math.round((totalUploaded / sel.size) * 100));
+                setSpeed(fmtSpeed(speedBps));
+                setEta(fmtEta(etaSec));
+              },
+              abort.signal,
+            );
+
+            // Chunk done — set its loaded to full size for accurate total
+            chunkLoaded[chunkIndex] = sizeBytes;
+            setLive((p) => {
               const n = [...p];
-              if (n[ci])
-                n[ci] = { ...n[ci], status: "retrying", attempt: a + 1 };
+              if (n[chunkIndex])
+                n[chunkIndex] = { status: "done", attempt: attempt + 1 };
               return n;
             });
-          } else if (ev.type === "chunkError") {
-            const { chunkIndex: ci, attempt: a } = ev as {
-              chunkIndex: number;
-              attempt: number;
-            };
-            setChunkLive((p) => {
-              const n = [...p];
-              if (n[ci]) n[ci] = { ...n[ci], status: "retrying", attempt: a };
-              return n;
-            });
-          } else if (ev.type === "done") {
-            const r = (ev as { result: UploadResult }).result;
-            setPercent(100);
-            setResult(r);
-            setState("done");
-            onUploadDone();
-          } else if (ev.type === "fatal") {
-            throw new Error((ev as { message: string }).message);
+            setDone((p) => p + 1);
+            return; // success
+          } catch (e) {
+            if ((e as Error).name === "AbortError") throw e;
+            if (attempt === MAX_RETRIES - 1) {
+              setLive((p) => {
+                const n = [...p];
+                if (n[chunkIndex])
+                  n[chunkIndex] = { status: "error", attempt: attempt + 1 };
+                return n;
+              });
+              throw new Error(
+                `Chunk ${chunkIndex + 1} failed after ${MAX_RETRIES} attempts: ${(e as Error).message}`,
+              );
+            }
           }
         }
+      };
+
+      // Upload chunks sequentially (parallel is faster but sequential gives
+      // smoother progress and is friendlier to S3 rate limits on large files)
+      for (const c of chunkPlan) {
+        await uploadChunk(c);
       }
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Unknown error");
+
+      // ── Step 3: notify server — verify + persist ───────────────────────────
+      const completeRes = await fetch("/api/upload/complete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ uploadId }),
+        signal: abort.signal,
+      });
+
+      if (!completeRes.ok) {
+        const d = await completeRes.json().catch(() => ({}));
+        throw new Error(d.error ?? "Failed to complete upload.");
+      }
+
+      const uploadResult: UploadResult = await completeRes.json();
+      setPct(100);
+      setResult(uploadResult);
+      setState("done");
+      onDone();
+    } catch (e: unknown) {
+      if ((e as Error).name === "AbortError") {
+        setErr("Upload cancelled.");
+        setState("error");
+        return;
+      }
+      setErr(e instanceof Error ? e.message : "Unknown error");
       setState("error");
     }
   };
 
+  const cancel = () => {
+    abortRef.current?.abort();
+  };
   const reset = () => {
     setSel(null);
     setResult(null);
     setState("idle");
-    setPercent(0);
-    setChunkLive([]);
-    setError("");
-    if (inputRef.current) inputRef.current.value = "";
+    setPct(0);
+    setLive([]);
+    setErr("");
+    setBytesUp(0);
+    if (ref.current) ref.current.value = "";
   };
 
   return (
     <>
-      {/* Quota bar */}
       <QuotaBar user={user} />
 
       {state !== "done" && (
         <div
-          className={`${styles.dropzone} ${dragOver ? styles.dragOver : ""} ${selectedFile ? styles.hasFile : ""}`}
+          className={`${styles.dropzone} ${drag ? styles.dragOver : ""} ${sel ? styles.hasFile : ""}`}
           onDragOver={(e) => {
             e.preventDefault();
-            setDragOver(true);
+            setDrag(true);
           }}
-          onDragLeave={() => setDragOver(false)}
+          onDragLeave={() => setDrag(false)}
           onDrop={onDrop}
-          onClick={() => inputRef.current?.click()}
+          onClick={() => ref.current?.click()}
           role="button"
           tabIndex={0}
-          onKeyDown={(e) => e.key === "Enter" && inputRef.current?.click()}
+          onKeyDown={(e) => e.key === "Enter" && ref.current?.click()}
         >
           <input
-            ref={inputRef}
+            ref={ref}
             type="file"
             className={styles.hiddenInput}
             onChange={(e) => {
               const f = e.target.files?.[0];
-              if (f) handleFile(f);
+              if (f) pick(f);
             }}
             tabIndex={-1}
           />
-          {!selectedFile ? (
+          {!sel ? (
             <div className={styles.dropContent}>
               <div className={styles.dropIcon}>↑</div>
               <p className={styles.dropPrimary}>Drop file here</p>
@@ -516,14 +655,12 @@ function UploadTab({
             <div className={styles.fileInfo}>
               <div className={styles.fileIcon}>◈</div>
               <div className={styles.fileMeta}>
-                <span className={styles.fileName}>{selectedFile.name}</span>
-                <span className={styles.fileSize}>
-                  {formatBytes(selectedFile.size)}
-                </span>
+                <span className={styles.fileName}>{sel.name}</span>
+                <span className={styles.fileSize}>{fmt(sel.size)}</span>
               </div>
-              {selectedFile.size > 10 * 1024 * 1024 && (
+              {sel.size > 10 * 1024 * 1024 && (
                 <span className={styles.chunkBadge}>
-                  → {Math.ceil(selectedFile.size / (10 * 1024 * 1024))} chunks
+                  → {Math.ceil(sel.size / (10 * 1024 * 1024))} chunks
                 </span>
               )}
             </div>
@@ -531,37 +668,59 @@ function UploadTab({
         </div>
       )}
 
-      {state === "idle" && selectedFile && (
+      {state === "idle" && sel && (
         <button className={styles.uploadBtn} onClick={upload}>
           <span>UPLOAD</span>
           <span className={styles.btnArrow}>→</span>
         </button>
       )}
+      {state === "uploading" && (
+        <button className={styles.cancelBtn} onClick={cancel}>
+          ✕ Cancel upload
+        </button>
+      )}
 
       {state === "uploading" && (
         <div className={styles.progressSection}>
+          {/* Speed + ETA banner */}
+          <div className={styles.speedBar}>
+            <div className={styles.speedItem}>
+              <span className={styles.speedLabel}>SPEED</span>
+              <span className={styles.speedVal}>{speedLabel || "–"}</span>
+            </div>
+            <div className={styles.speedDivider} />
+            <div className={styles.speedItem}>
+              <span className={styles.speedLabel}>UPLOADED</span>
+              <span className={styles.speedVal}>
+                {fmt(bytesUp)} / {fmt(totalBytes)}
+              </span>
+            </div>
+            <div className={styles.speedDivider} />
+            <div className={styles.speedItem}>
+              <span className={styles.speedLabel}>ETA</span>
+              <span className={styles.speedVal}>{etaLabel || "–"}</span>
+            </div>
+          </div>
+
           <div className={styles.progressHeader}>
             <span className={styles.progressTitle}>
-              Uploading {chunksDone}/{chunksTotal} chunk
-              {chunksTotal !== 1 ? "s" : ""}
+              Uploading {done}/{total} chunk{total !== 1 ? "s" : ""}
             </span>
-            <span className={styles.progressPct}>{percent}%</span>
+            <span className={styles.progressPct}>{pct}%</span>
           </div>
           <div className={styles.progressBar}>
-            <div
-              className={styles.progressFill}
-              style={{ width: `${percent}%` }}
-            />
+            <div className={styles.progressFill} style={{ width: `${pct}%` }} />
           </div>
-          {chunksTotal > 1 && (
+
+          {total > 1 && (
             <div className={styles.chunkGrid}>
-              {chunkLive.map((c, i) => (
+              {live.map((c, i) => (
                 <div
                   key={i}
                   className={`${styles.chunkPill} ${styles[`pill_${c.status}`]}`}
                   title={
                     c.status === "retrying"
-                      ? `Chunk ${i + 1}: retrying (${c.attempt}/${c.maxAttempts})`
+                      ? `Chunk ${i + 1}: retrying (${c.attempt}/3)`
                       : `Chunk ${i + 1}: ${c.status}`
                   }
                 >
@@ -600,7 +759,7 @@ function UploadTab({
       {state === "error" && (
         <div className={styles.errorBox}>
           <span className={styles.errorIcon}>✕</span>
-          <span>{errorMsg}</span>
+          <span>{err}</span>
           <button className={styles.retryBtn} onClick={reset}>
             Retry
           </button>
@@ -614,7 +773,7 @@ function UploadTab({
             <div>
               <h2 className={styles.resultTitle}>{result.originalFilename}</h2>
               <p className={styles.resultSub}>
-                {formatBytes(result.fileSizeBytes)} · {result.totalChunks} chunk
+                {fmt(result.fileSizeBytes)} · {result.totalChunks} chunk
                 {result.totalChunks !== 1 ? "s" : ""} uploaded
               </p>
             </div>
@@ -632,9 +791,7 @@ function UploadTab({
                   <span className={styles.chunkHash}>
                     {c.hash.slice(0, 16)}…
                   </span>
-                  <span className={styles.chunkSize}>
-                    {formatBytes(c.sizeBytes)}
-                  </span>
+                  <span className={styles.chunkSize}>{fmt(c.sizeBytes)}</span>
                   <span className={styles.chunkExpiry}>
                     exp {new Date(c.expiresAt).toLocaleString()}
                   </span>
@@ -670,7 +827,7 @@ function UploadTab({
           <div className={styles.actions}>
             <button
               className={styles.manifestBtn}
-              onClick={() => downloadText(result.manifest, "manifest.txt")}
+              onClick={() => dlText(result.manifest, "manifest.txt")}
             >
               ↓ manifest.txt
             </button>
@@ -684,49 +841,63 @@ function UploadTab({
   );
 }
 
-// ─── COMBINER TAB (unchanged logic, condensed) ────────────────────────────────
+// ── COMBINER TAB ──────────────────────────────────────────────────────────────
 function CombinerTab() {
   const [mode, setMode] = useState<CombinerMode>("files");
-  const [chunkFiles, setChunkFiles] = useState<File[]>([]);
-  const fileRef = useRef<HTMLInputElement>(null);
-  const [fileDrag, setFileDrag] = useState(false);
+  const [chunkFiles, setCF] = useState<File[]>([]);
+  const fRef = useRef<HTMLInputElement>(null);
+  const [fd, setFd] = useState(false);
   const [urlText, setUrlText] = useState("");
-  const [urlEntries, setUrlEntries] = useState<UrlChunkEntry[]>([]);
-  const [urlsFetching, setFetching] = useState(false);
+  const [entries, setEntries] = useState<UrlEntry[]>([]);
+  const [fetching, setFetching] = useState(false);
   const [fetchPct, setFetchPct] = useState(0);
-  const [outputName, setOutputName] = useState("reconstructed-file");
+  const [outName, setOutName] = useState("reconstructed-file");
   const [combining, setCombining] = useState(false);
   const [combined, setCombined] = useState(false);
-  const [combineError, setCombineError] = useState("");
+  const [combErr, setCombErr] = useState("");
 
-  const inferExtLocal = inferExt;
+  const extToMime: Record<string, string> = {
+    ".mp4": "video/mp4",
+    ".webm": "video/webm",
+    ".mov": "video/quicktime",
+    ".mp3": "audio/mpeg",
+    ".wav": "audio/wav",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".pdf": "application/pdf",
+    ".zip": "application/zip",
+    ".gz": "application/gzip",
+    ".json": "application/json",
+    ".txt": "text/plain",
+    ".csv": "text/csv",
+  };
 
   const addFiles = (fl: FileList | File[]) => {
     const arr = Array.from(fl);
-    setChunkFiles((prev) => {
+    setCF((prev) => {
       const ex = new Set(prev.map((f) => f.name));
-      const merged = [...prev, ...arr.filter((f) => !ex.has(f.name))];
-      merged.sort(
+      const m = [...prev, ...arr.filter((f) => !ex.has(f.name))];
+      m.sort(
         (a, b) =>
           parseInt(a.name.match(/\d+/)?.[0] ?? "0") -
           parseInt(b.name.match(/\d+/)?.[0] ?? "0"),
       );
-      if (merged.length > 0) {
-        const ext = inferExtLocal(merged[0].name);
-        setOutputName((cur) => {
-          if (ext && cur.endsWith(ext)) return cur;
+      if (m.length > 0) {
+        const e = inferExt(m[0].name);
+        setOutName((c) => {
+          if (e && c.endsWith(e)) return c;
           return (
-            (cur.replace(/\.[^.]+$/, "") || "reconstructed-file") + (ext || "")
+            (c.replace(/\.[^.]+$/, "") || "reconstructed-file") + (e || "")
           );
         });
       }
-      return merged;
+      return m;
     });
     setCombined(false);
   };
-
   const moveFile = (from: number, to: number) => {
-    setChunkFiles((p) => {
+    setCF((p) => {
       const a = [...p];
       const [it] = a.splice(from, 1);
       a.splice(to, 0, it);
@@ -740,7 +911,7 @@ function CombinerTab() {
       .split("\n")
       .map((l) => l.trim())
       .filter((l) => l && !l.startsWith("#"));
-    setUrlEntries(
+    setEntries(
       lines.map((url, i) => ({
         id: `u${i}`,
         url,
@@ -750,21 +921,20 @@ function CombinerTab() {
     );
     setCombined(false);
     if (lines.length > 0) {
-      const det = filenameFromUrl(lines[0]);
-      if (det) {
-        const ext = inferExt(det);
-        setOutputName((cur) => {
-          if (ext && cur.endsWith(ext)) return cur;
+      const d = urlFilename(lines[0]);
+      if (d) {
+        const e = inferExt(d);
+        setOutName((c) => {
+          if (e && c.endsWith(e)) return c;
           return (
-            (cur.replace(/\.[^.]+$/, "") || "reconstructed-file") + (ext || "")
+            (c.replace(/\.[^.]+$/, "") || "reconstructed-file") + (e || "")
           );
         });
       }
     }
   };
-
   const moveUrl = (from: number, to: number) => {
-    setUrlEntries((p) => {
+    setEntries((p) => {
       const a = [...p];
       const [it] = a.splice(from, 1);
       a.splice(to, 0, it);
@@ -773,7 +943,7 @@ function CombinerTab() {
     setCombined(false);
   };
 
-  function classifyStatus(status: number): "missing" | "expired" | "error" {
+  function classify(status: number): "missing" | "expired" | "error" {
     if (status === 404) return "missing";
     if (status === 403 || status === 400) return "expired";
     return "error";
@@ -784,8 +954,8 @@ function CombinerTab() {
     index: number,
     onRetry: (a: number) => void,
   ) {
-    let lastStatus = 0;
-    let lastMsg = "";
+    let ls = 0,
+      lm = "";
     for (let a = 0; a < 3; a++) {
       try {
         if (a > 0) {
@@ -794,29 +964,24 @@ function CombinerTab() {
             setTimeout(r, 500 * Math.pow(2, a - 1)),
           );
         }
-        const res = await fetch(url);
-        lastStatus = res.status;
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return { ok: true as const, blob: await res.blob(), index };
-      } catch (err) {
-        lastMsg = err instanceof Error ? err.message : String(err);
+        const r = await fetch(url);
+        ls = r.status;
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return { ok: true as const, blob: await r.blob(), index };
+      } catch (e) {
+        lm = e instanceof Error ? e.message : String(e);
       }
     }
-    return {
-      ok: false as const,
-      index,
-      reason: classifyStatus(lastStatus),
-      detail: lastMsg,
-    };
+    return { ok: false as const, index, reason: classify(ls), detail: lm };
   }
 
-  const fetchUrlChunks = async (): Promise<Blob[]> => {
-    setUrlEntries((p) => p.map((e) => ({ ...e, status: "fetching" as const })));
-    let completed = 0;
+  const fetchAll = async (): Promise<Blob[]> => {
+    setEntries((p) => p.map((e) => ({ ...e, status: "fetching" as const })));
+    let done = 0;
     const results = await Promise.all(
-      urlEntries.map((entry, i) =>
+      entries.map((entry, i) =>
         fetchOne(entry.url, i, (a) =>
-          setUrlEntries((p) =>
+          setEntries((p) =>
             p.map((e, j) =>
               j === i
                 ? {
@@ -828,7 +993,7 @@ function CombinerTab() {
             ),
           ),
         ).then((r) => {
-          setUrlEntries((p) =>
+          setEntries((p) =>
             p.map((e, j) =>
               j === i
                 ? r.ok
@@ -851,98 +1016,71 @@ function CombinerTab() {
                 : e,
             ),
           );
-          completed++;
-          setFetchPct(Math.round((completed / urlEntries.length) * 100));
+          done++;
+          setFetchPct(Math.round((done / entries.length) * 100));
           return r;
         }),
       ),
     );
-    const failures = results.filter(
+    const fails = results.filter(
       (r): r is Extract<typeof r, { ok: false }> => !r.ok,
     );
-    if (failures.length > 0) {
-      const missing = failures.filter((f) => f.reason === "missing");
-      const expired = failures.filter((f) => f.reason === "expired");
-      const errors = failures.filter((f) => f.reason === "error");
-      const parts: string[] = [];
-      if (missing.length)
-        parts.push(
-          `Chunk${missing.length > 1 ? "s" : ""} ${missing.map((f) => `#${f.index + 1}`).join(", ")} ${missing.length > 1 ? "are" : "is"} missing.`,
+    if (fails.length) {
+      const mi = fails.filter((f) => f.reason === "missing"),
+        ex = fails.filter((f) => f.reason === "expired"),
+        er = fails.filter((f) => f.reason === "error");
+      const p: string[] = [];
+      if (mi.length)
+        p.push(
+          `Chunk${mi.length > 1 ? "s" : ""} ${mi.map((f) => `#${f.index + 1}`).join(", ")} ${mi.length > 1 ? "are" : "is"} missing.`,
         );
-      if (expired.length)
-        parts.push(
-          `Chunk${expired.length > 1 ? "s" : ""} ${expired.map((f) => `#${f.index + 1}`).join(", ")} link${expired.length > 1 ? "s have" : " has"} expired.`,
+      if (ex.length)
+        p.push(
+          `Chunk${ex.length > 1 ? "s" : ""} ${ex.map((f) => `#${f.index + 1}`).join(", ")} link${ex.length > 1 ? "s have" : " has"} expired.`,
         );
-      if (errors.length)
-        parts.push(
-          `Chunk${errors.length > 1 ? "s" : ""} ${errors.map((f) => `#${f.index + 1}`).join(", ")} failed: ${errors[0].detail}`,
+      if (er.length)
+        p.push(
+          `Chunk${er.length > 1 ? "s" : ""} ${er.map((f) => `#${f.index + 1}`).join(", ")} failed: ${er[0].detail}`,
         );
-      throw new Error(parts.join("\n"));
+      throw new Error(p.join("\n"));
     }
     return (results as Extract<(typeof results)[number], { ok: true }>[])
       .sort((a, b) => a.index - b.index)
       .map((r) => r.blob);
   };
 
-  const extToMime: Record<string, string> = {
-    ".mp4": "video/mp4",
-    ".webm": "video/webm",
-    ".mov": "video/quicktime",
-    ".avi": "video/x-msvideo",
-    ".mkv": "video/x-matroska",
-    ".mp3": "audio/mpeg",
-    ".wav": "audio/wav",
-    ".flac": "audio/flac",
-    ".ogg": "audio/ogg",
-    ".aac": "audio/aac",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".png": "image/png",
-    ".gif": "image/gif",
-    ".webp": "image/webp",
-    ".pdf": "application/pdf",
-    ".zip": "application/zip",
-    ".gz": "application/gzip",
-    ".tar": "application/x-tar",
-    ".json": "application/json",
-    ".txt": "text/plain",
-    ".csv": "text/csv",
-    ".html": "text/html",
-  };
-
   const combine = async () => {
     if (combining) return;
     setCombining(true);
     setCombined(false);
-    setCombineError("");
+    setCombErr("");
     try {
       let blobs: Blob[];
-      if (mode === "files") {
+      if (mode === "files")
         blobs = await Promise.all(
           chunkFiles.map(async (f) => new Blob([await f.arrayBuffer()])),
         );
-      } else {
+      else {
         setFetching(true);
         setFetchPct(0);
-        setUrlEntries((p) =>
+        setEntries((p) =>
           p.map((e) => ({ ...e, status: "idle", errorMsg: undefined })),
         );
-        blobs = await fetchUrlChunks();
+        blobs = await fetchAll();
         setFetching(false);
       }
-      const ext = outputName.slice(outputName.lastIndexOf(".")).toLowerCase();
-      const merged = new Blob(blobs, {
-        type: extToMime[ext] ?? "application/octet-stream",
-      });
-      const url = URL.createObjectURL(merged);
+      const ext = outName.slice(outName.lastIndexOf(".")).toLowerCase();
+      const url = URL.createObjectURL(
+        new Blob(blobs, { type: extToMime[ext] ?? "application/octet-stream" }),
+      );
       const a = document.createElement("a");
       a.href = url;
-      a.download = outputName;
+      a.download = outName;
       a.click();
       URL.revokeObjectURL(url);
       setCombined(true);
-    } catch (err) {
-      setCombineError(err instanceof Error ? err.message : "Combine failed");
+    } catch (e) {
+      setCombErr(e instanceof Error ? e.message : "Combine failed");
       if (mode === "urls") setFetching(false);
     } finally {
       setCombining(false);
@@ -951,27 +1089,26 @@ function CombinerTab() {
 
   const canCombine =
     !combining &&
-    (mode === "files" ? chunkFiles.length > 0 : urlEntries.length > 0);
+    (mode === "files" ? chunkFiles.length > 0 : entries.length > 0);
 
   return (
     <div className={styles.combiner}>
       <div className={styles.combinerInfo}>
         <span className={styles.combinerInfoIcon}>⬡</span>
         <p>
-          Reconstruct files from downloaded chunks in your browser — no
-          re-upload. <strong>File mode</strong>: drop local chunk files.{" "}
-          <strong>URL mode</strong>: paste signed URLs and the tool fetches +
+          Reconstruct files from downloaded chunks — in your browser.{" "}
+          <strong>File mode</strong>: drop local chunk files.{" "}
+          <strong>URL mode</strong>: paste signed URLs, the tool fetches +
           merges.
         </p>
       </div>
-
       <div className={styles.modeToggle}>
         <button
           className={`${styles.modeBtn} ${mode === "files" ? styles.modeBtnActive : ""}`}
           onClick={() => {
             setMode("files");
             setCombined(false);
-            setCombineError("");
+            setCombErr("");
           }}
         >
           ◈ Local Files
@@ -981,7 +1118,7 @@ function CombinerTab() {
           onClick={() => {
             setMode("urls");
             setCombined(false);
-            setCombineError("");
+            setCombErr("");
           }}
         >
           ⬡ Remote URLs
@@ -991,24 +1128,24 @@ function CombinerTab() {
       {mode === "files" && (
         <>
           <div
-            className={`${styles.combinerDrop} ${fileDrag ? styles.dragOver : ""}`}
+            className={`${styles.combinerDrop} ${fd ? styles.dragOver : ""}`}
             onDragOver={(e) => {
               e.preventDefault();
-              setFileDrag(true);
+              setFd(true);
             }}
-            onDragLeave={() => setFileDrag(false)}
+            onDragLeave={() => setFd(false)}
             onDrop={(e) => {
               e.preventDefault();
-              setFileDrag(false);
+              setFd(false);
               addFiles(e.dataTransfer.files);
             }}
-            onClick={() => fileRef.current?.click()}
+            onClick={() => fRef.current?.click()}
             role="button"
             tabIndex={0}
-            onKeyDown={(e) => e.key === "Enter" && fileRef.current?.click()}
+            onKeyDown={(e) => e.key === "Enter" && fRef.current?.click()}
           >
             <input
-              ref={fileRef}
+              ref={fRef}
               type="file"
               multiple
               className={styles.hiddenInput}
@@ -1028,8 +1165,7 @@ function CombinerTab() {
               <div className={styles.combinerListHeader}>
                 <span className={styles.sectionLabel}>CHUNK ORDER</span>
                 <span className={styles.sectionLabel}>
-                  {formatBytes(chunkFiles.reduce((s, f) => s + f.size, 0))}{" "}
-                  total
+                  {fmt(chunkFiles.reduce((s, f) => s + f.size, 0))} total
                 </span>
               </div>
               {chunkFiles.map((f, i) => (
@@ -1038,9 +1174,7 @@ function CombinerTab() {
                     #{i + 1}
                   </span>
                   <span className={styles.combinerChunkName}>{f.name}</span>
-                  <span className={styles.chunkSize}>
-                    {formatBytes(f.size)}
-                  </span>
+                  <span className={styles.chunkSize}>{fmt(f.size)}</span>
                   <div className={styles.combinerRowBtns}>
                     <button
                       className={styles.combinerArrow}
@@ -1061,7 +1195,7 @@ function CombinerTab() {
                     <button
                       className={styles.deleteBtn}
                       onClick={() => {
-                        setChunkFiles((p) => p.filter((_, j) => j !== i));
+                        setCF((p) => p.filter((_, j) => j !== i));
                         setCombined(false);
                       }}
                     >
@@ -1099,13 +1233,13 @@ function CombinerTab() {
               Parse URLs →
             </button>
           </div>
-          {urlEntries.length > 0 && (
+          {entries.length > 0 && (
             <div className={styles.combinerList}>
               <div className={styles.combinerListHeader}>
                 <span className={styles.sectionLabel}>
-                  {urlEntries.length} CHUNK{urlEntries.length !== 1 ? "S" : ""}
+                  {entries.length} CHUNK{entries.length !== 1 ? "S" : ""}
                 </span>
-                {urlsFetching && (
+                {fetching && (
                   <span
                     className={styles.sectionLabel}
                     style={{ color: "var(--accent2)" }}
@@ -1114,7 +1248,7 @@ function CombinerTab() {
                   </span>
                 )}
               </div>
-              {urlsFetching && (
+              {fetching && (
                 <div className={styles.urlFetchBar}>
                   <div
                     className={styles.urlFetchFill}
@@ -1122,39 +1256,35 @@ function CombinerTab() {
                   />
                 </div>
               )}
-              {urlEntries.map((entry, i) => (
+              {entries.map((e, i) => (
                 <div
-                  key={entry.id}
-                  className={`${styles.combinerChunkRow} ${styles[`urlRow_${entry.status}`] || ""}`}
+                  key={e.id}
+                  className={`${styles.combinerChunkRow} ${styles[`urlRow_${e.status}`] || ""}`}
                 >
                   <span className={styles.chunkIdx} style={{ minWidth: 28 }}>
                     #{i + 1}
                   </span>
                   <span className={styles.urlStatusIcon}>
-                    {entry.status === "idle" ? (
+                    {e.status === "idle" ? (
                       "·"
-                    ) : entry.status === "fetching" ? (
-                      <span className={styles.spinnerDot} />
-                    ) : entry.status === "done" ? (
+                    ) : e.status === "fetching" ? (
+                      <span className={styles.spinDot} />
+                    ) : e.status === "done" ? (
                       <span style={{ color: "var(--success)" }}>✓</span>
                     ) : (
                       <span style={{ color: "var(--error)" }}>✕</span>
                     )}
                   </span>
-                  <span className={styles.combinerChunkName} title={entry.url}>
-                    {entry.url.length > 55
-                      ? entry.url.slice(0, 55) + "…"
-                      : entry.url}
+                  <span className={styles.combinerChunkName} title={e.url}>
+                    {e.url.length > 55 ? e.url.slice(0, 55) + "…" : e.url}
                   </span>
-                  {entry.status === "done" && entry.sizeBytes && (
-                    <span className={styles.chunkSize}>
-                      {formatBytes(entry.sizeBytes)}
-                    </span>
+                  {e.status === "done" && e.sizeBytes && (
+                    <span className={styles.chunkSize}>{fmt(e.sizeBytes)}</span>
                   )}
-                  {entry.errorMsg && (
-                    <span className={styles.urlEntryErr}>{entry.errorMsg}</span>
+                  {e.errorMsg && (
+                    <span className={styles.urlEntryErr}>{e.errorMsg}</span>
                   )}
-                  {!urlsFetching && (
+                  {!fetching && (
                     <div className={styles.combinerRowBtns}>
                       <button
                         className={styles.combinerArrow}
@@ -1166,16 +1296,16 @@ function CombinerTab() {
                       <button
                         className={styles.combinerArrow}
                         onClick={() =>
-                          i < urlEntries.length - 1 && moveUrl(i, i + 1)
+                          i < entries.length - 1 && moveUrl(i, i + 1)
                         }
-                        disabled={i === urlEntries.length - 1}
+                        disabled={i === entries.length - 1}
                       >
                         ↓
                       </button>
                       <button
                         className={styles.deleteBtn}
                         onClick={() => {
-                          setUrlEntries((p) =>
+                          setEntries((p) =>
                             p
                               .filter((_, j) => j !== i)
                               .map((e, k) => ({
@@ -1205,8 +1335,8 @@ function CombinerTab() {
             </span>
             <input
               className={styles.outputNameInput}
-              value={outputName}
-              onChange={(e) => setOutputName(e.target.value)}
+              value={outName}
+              onChange={(e) => setOutName(e.target.value)}
               placeholder="filename"
               spellCheck={false}
             />
@@ -1223,12 +1353,12 @@ function CombinerTab() {
                   ? `FETCHING… ${fetchPct}%`
                   : "COMBINING…"
                 : mode === "urls"
-                  ? `FETCH & COMBINE ${urlEntries.length} CHUNK${urlEntries.length !== 1 ? "S" : ""}`
+                  ? `FETCH & COMBINE ${entries.length} CHUNK${entries.length !== 1 ? "S" : ""}`
                   : `COMBINE ${chunkFiles.length} CHUNK${chunkFiles.length !== 1 ? "S" : ""}`}
             </span>
             <span className={styles.btnArrow}>→</span>
           </button>
-          {combineError && (
+          {combErr && (
             <div className={styles.chunkErrorBox}>
               <div className={styles.chunkErrorHeader}>
                 <span className={styles.errorIcon}>✕</span>
@@ -1240,19 +1370,19 @@ function CombinerTab() {
                 </button>
               </div>
               <ul className={styles.chunkErrorList}>
-                {combineError
+                {combErr
                   .split("\n")
                   .filter(Boolean)
                   .map((line, i) => {
-                    const isExpired = line.toLowerCase().includes("expir");
-                    const isMissing = line.toLowerCase().includes("missing");
+                    const exp = line.toLowerCase().includes("expir"),
+                      mis = line.toLowerCase().includes("missing");
                     return (
                       <li
                         key={i}
-                        className={`${styles.chunkErrorItem} ${isExpired ? styles.chunkErrorExpired : isMissing ? styles.chunkErrorMissing : styles.chunkErrorGeneric}`}
+                        className={`${styles.chunkErrorItem} ${exp ? styles.chunkErrorExpired : mis ? styles.chunkErrorMissing : styles.chunkErrorGeneric}`}
                       >
                         <span className={styles.chunkErrorBullet}>
-                          {isExpired ? "⏱" : isMissing ? "⊘" : "!"}
+                          {exp ? "⏱" : mis ? "⊘" : "!"}
                         </span>
                         {line}
                       </li>
@@ -1261,11 +1391,11 @@ function CombinerTab() {
               </ul>
             </div>
           )}
-          {combined && !combineError && (
+          {combined && !combErr && (
             <div className={styles.combinerSuccess}>
               <span style={{ color: "var(--success)" }}>✓</span>
               <span>
-                Downloaded as <strong>{outputName}</strong>
+                Downloaded as <strong>{outName}</strong>
               </span>
             </div>
           )}
@@ -1275,14 +1405,13 @@ function CombinerTab() {
   );
 }
 
-// ─── ROOT PAGE ────────────────────────────────────────────────────────────────
-export default function MainPageView() {
+// ── ROOT ──────────────────────────────────────────────────────────────────────
+export default function Home() {
   const router = useRouter();
-  const [user, setUser] = useState<SessionUser | null | undefined>(undefined); // undefined = loading
+  const [user, setUser] = useState<SessionUser | null | undefined>(undefined);
   const [tab, setTab] = useState<Tab>("upload");
-  const [filesBadge, setBadge] = useState(0);
+  const [badge, setBadge] = useState(0);
 
-  // Load session
   useEffect(() => {
     fetch("/api/auth/me")
       .then((r) => r.json())
@@ -1297,15 +1426,12 @@ export default function MainPageView() {
     await fetch("/api/auth/logout", { method: "POST" });
     router.push("/auth");
   };
-
-  const refreshUser = () => {
+  const refreshUser = () =>
     fetch("/api/auth/me")
       .then((r) => r.json())
       .then((d) => {
         if (d.user) setUser(d.user);
       });
-  };
-
   const onUploadDone = () => {
     setBadge((n) => n + 1);
     refreshUser();
@@ -1332,7 +1458,6 @@ export default function MainPageView() {
     <main className={styles.main}>
       <div className={styles.grid} aria-hidden />
       <div className={styles.container}>
-        {/* Header */}
         <header className={styles.header}>
           <div className={styles.headerRow}>
             <div className={styles.logo}>
@@ -1341,6 +1466,11 @@ export default function MainPageView() {
             </div>
             {user && (
               <div className={styles.userBar}>
+                {user.isAdmin && (
+                  <a href="/admin" className={styles.adminLink}>
+                    ⬡ Admin
+                  </a>
+                )}
                 <span className={styles.userName}>{user.name}</span>
                 <button className={styles.logoutBtn} onClick={logout}>
                   Sign out
@@ -1349,14 +1479,11 @@ export default function MainPageView() {
             )}
           </div>
           <p className={styles.tagline}>
-            Files over 10 MB are split into isolated chunks — each with a unique
-            hash.
-            <br />
-            Real upload progress · per-chunk retry · 1 GB daily quota per user.
+            Chunked file upload · per-chunk retry · real-time speed ·{" "}
+            {user?.planLabel} plan
           </p>
         </header>
 
-        {/* Tabs */}
         <div className={styles.tabs}>
           {(["upload", "files", "combiner"] as Tab[]).map((t) => (
             <button
@@ -1371,9 +1498,7 @@ export default function MainPageView() {
               {t === "files" && (
                 <>
                   ◈ My Files
-                  {filesBadge > 0 && (
-                    <span className={styles.badge}>{filesBadge}</span>
-                  )}
+                  {badge > 0 && <span className={styles.badge}>{badge}</span>}
                 </>
               )}
               {t === "combiner" && "⬡ Combiner"}
@@ -1383,11 +1508,9 @@ export default function MainPageView() {
 
         <div className={styles.tabContent}>
           {tab === "upload" && user && (
-            <UploadTab user={user} onUploadDone={onUploadDone} />
+            <UploadTab user={user} onDone={onUploadDone} />
           )}
-          {tab === "files" && (
-            <FilesTab key={filesBadge} onRefresh={refreshUser} />
-          )}
+          {tab === "files" && <FilesTab key={badge} onRefresh={refreshUser} />}
           {tab === "combiner" && <CombinerTab />}
         </div>
       </div>

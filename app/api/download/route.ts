@@ -1,20 +1,9 @@
-/**
- * GET /api/download?keys=[...]&filename=foo.zip
- *
- * Fetches all S3 chunks in order, classifies each failure precisely
- * (missing vs expired vs error), then either streams the full file
- * or returns a detailed error listing every affected chunk.
- *
- * Expiry is validated by S3's REAL response — NOT a URL query param.
- */
-
 import { NextRequest, NextResponse } from "next/server";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSession } from "@/lib/auth";
+import { s3, BUCKET } from "@/lib/s3";
 import { Readable } from "stream";
-import { BUCKET, s3 } from "@/lib/s3";
 
-// ── TYPES ─────────────────────────────────────────────────────────────────────
 type ChunkResult =
   | { ok: true; index: number; buffer: Buffer }
   | {
@@ -24,7 +13,6 @@ type ChunkResult =
       detail: string;
     };
 
-// ── HELPERS ───────────────────────────────────────────────────────────────────
 async function fetchChunk(index: number, key: string): Promise<ChunkResult> {
   try {
     const res = await s3.send(
@@ -47,108 +35,66 @@ async function fetchChunk(index: number, key: string): Promise<ChunkResult> {
         (err as { $metadata?: { httpStatusCode?: number } }).$metadata
           ?.httpStatusCode ?? "",
       );
-    const message = err instanceof Error ? err.message : String(err);
-
+    const msg = err instanceof Error ? err.message : String(err);
     if (name === "NoSuchKey" || code === "NoSuchKey" || code === "404")
       return {
         ok: false,
         index,
         reason: "missing",
-        detail: "Object not found in bucket",
+        detail: "Object not found",
       };
-
     if (
       name === "AccessDenied" ||
       code === "AccessDenied" ||
       name === "RequestExpired" ||
-      code === "RequestExpired" ||
       code === "403"
     )
-      return {
-        ok: false,
-        index,
-        reason: "expired",
-        detail: "Presigned URL has expired",
-      };
-
-    return { ok: false, index, reason: "error", detail: message };
+      return { ok: false, index, reason: "expired", detail: "Link expired" };
+    return { ok: false, index, reason: "error", detail: msg };
   }
 }
 
-// ── ROUTE ─────────────────────────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
-  // Auth required — only logged-in users can reconstruct files
   const session = await getSession(req);
-  if (!session) {
-    return NextResponse.json(
-      { error: "You must be logged in to download files." },
-      { status: 401 },
-    );
-  }
+  if (!session)
+    return NextResponse.json({ error: "Login required." }, { status: 401 });
 
   try {
     const { searchParams } = new URL(req.url);
     const keysParam = searchParams.get("keys");
     const filename = searchParams.get("filename") ?? "download";
-    // `expires` param intentionally ignored — expiry enforced by S3 itself
-
     if (!keysParam)
-      return NextResponse.json(
-        { error: "Missing chunk keys." },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: "Missing keys." }, { status: 400 });
 
     let keys: string[];
     try {
       keys = JSON.parse(decodeURIComponent(keysParam));
     } catch {
-      return NextResponse.json(
-        { error: "Invalid keys parameter." },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: "Invalid keys." }, { status: 400 });
     }
 
-    if (!Array.isArray(keys) || keys.length === 0)
-      return NextResponse.json(
-        { error: "No chunk keys provided." },
-        { status: 400 },
-      );
-
-    // ── Probe ALL chunks in parallel ─────────────────────────────────────────
     const results = await Promise.all(keys.map((k, i) => fetchChunk(i, k)));
     const failures = results.filter(
       (r): r is Extract<ChunkResult, { ok: false }> => !r.ok,
     );
 
-    if (failures.length > 0) {
+    if (failures.length) {
       const missing = failures.filter((f) => f.reason === "missing");
       const expired = failures.filter((f) => f.reason === "expired");
       const errors = failures.filter((f) => f.reason === "error");
       const parts: string[] = [];
-
-      if (missing.length > 0) {
-        const nums = missing.map((f) => `#${f.index + 1}`).join(", ");
+      if (missing.length)
         parts.push(
-          missing.length === 1
-            ? `Chunk ${nums} is missing from storage. It may have been deleted.`
-            : `Chunks ${nums} are missing from storage. They may have been deleted.`,
+          `Chunk${missing.length > 1 ? "s" : ""} ${missing.map((f) => `#${f.index + 1}`).join(", ")} ${missing.length > 1 ? "are" : "is"} missing from storage.`,
         );
-      }
-      if (expired.length > 0) {
-        const nums = expired.map((f) => `#${f.index + 1}`).join(", ");
+      if (expired.length)
         parts.push(
-          expired.length === 1
-            ? `Chunk ${nums} download link has expired. Re-upload or regenerate.`
-            : `Chunks ${nums} download links have expired. Re-upload or regenerate.`,
+          `Chunk${expired.length > 1 ? "s" : ""} ${expired.map((f) => `#${f.index + 1}`).join(", ")} link${expired.length > 1 ? "s have" : " has"} expired.`,
         );
-      }
-      if (errors.length > 0) {
-        const nums = errors.map((f) => `#${f.index + 1}`).join(", ");
+      if (errors.length)
         parts.push(
-          `Chunk${errors.length > 1 ? "s" : ""} ${nums} failed: ${errors[0].detail}`,
+          `Chunk${errors.length > 1 ? "s" : ""} ${errors.map((f) => `#${f.index + 1}`).join(", ")} failed: ${errors[0].detail}`,
         );
-      }
-
       return NextResponse.json(
         {
           error: parts.join(" "),
@@ -159,22 +105,14 @@ export async function GET(req: NextRequest) {
           })),
           total: keys.length,
         },
-        {
-          status: failures.some((f) => f.reason === "missing")
-            ? 404
-            : failures.some((f) => f.reason === "expired")
-              ? 410
-              : 502,
-        },
+        { status: missing.length ? 404 : expired.length ? 410 : 502 },
       );
     }
 
-    // ── Assemble + stream ─────────────────────────────────────────────────────
     const ordered = (results as Extract<ChunkResult, { ok: true }>[]).sort(
       (a, b) => a.index - b.index,
     );
     const fullFile = Buffer.concat(ordered.map((r) => r.buffer));
-
     return new NextResponse(fullFile, {
       status: 200,
       headers: {
@@ -185,7 +123,7 @@ export async function GET(req: NextRequest) {
       },
     });
   } catch (err) {
-    console.error("[download] error:", err);
+    console.error("[download]", err);
     return NextResponse.json({ error: "Download failed." }, { status: 500 });
   }
 }

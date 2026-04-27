@@ -38,6 +38,7 @@ body {
   background: #0a0b0d;
   color: #c8d4e0;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 ::-webkit-scrollbar {
   width: 6px;
