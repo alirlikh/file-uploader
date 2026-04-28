@@ -11,11 +11,13 @@ export async function GET(req: NextRequest) {
   const session = await getSession(req);
   if (!session) return NextResponse.json({ user: null });
 
-  const user = getUserById(session.sub);
+  const user = await getUserById(session.sub);
   if (!user || user.is_blocked) return NextResponse.json({ user: null });
 
-  const dailyUsed = getDailyUsed(user.id);
-  const dailyLimit = getDailyLimitForUser(user.id);
+  const [dailyUsed, dailyLimit] = await Promise.all([
+    getDailyUsed(user.id),
+    getDailyLimitForUser(user.id),
+  ]);
   const dailyRemaining = Math.max(0, dailyLimit - dailyUsed);
 
   return NextResponse.json({
@@ -23,7 +25,7 @@ export async function GET(req: NextRequest) {
       id: user.id,
       email: user.email,
       name: user.name,
-      isAdmin: !!user.is_admin,
+      isAdmin: user.is_admin,
       plan: user.plan,
       planLabel: PLANS[user.plan]?.label ?? user.plan,
       planColor: PLANS[user.plan]?.color ?? "#5a6a7a",

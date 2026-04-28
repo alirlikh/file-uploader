@@ -85,7 +85,7 @@ export async function GET(req: NextRequest) {
       const parts: string[] = [];
       if (missing.length)
         parts.push(
-          `Chunk${missing.length > 1 ? "s" : ""} ${missing.map((f) => `#${f.index + 1}`).join(", ")} ${missing.length > 1 ? "are" : "is"} missing from storage.`,
+          `Chunk${missing.length > 1 ? "s" : ""} ${missing.map((f) => `#${f.index + 1}`).join(", ")} ${missing.length > 1 ? "are" : "is"} missing.`,
         );
       if (expired.length)
         parts.push(

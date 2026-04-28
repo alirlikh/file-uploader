@@ -29,14 +29,14 @@ export async function POST(req: NextRequest) {
         { error: "Password must be at least 8 characters." },
         { status: 400 },
       );
-    if (getUserByEmail(String(email).toLowerCase()))
+    if (await getUserByEmail(String(email).toLowerCase()))
       return NextResponse.json(
         { error: "An account with this email already exists." },
         { status: 409 },
       );
 
     const hash = await bcrypt.hash(String(password), 12);
-    const user = createUser(
+    const user = await createUser(
       randomUUID(),
       String(email).toLowerCase().trim(),
       String(name).trim(),
@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
       sub: user.id,
       email: user.email,
       name: user.name,
-      isAdmin: !!user.is_admin,
+      isAdmin: user.is_admin,
       plan: user.plan,
     });
     const res = NextResponse.json(
@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
           id: user.id,
           email: user.email,
           name: user.name,
-          isAdmin: !!user.is_admin,
+          isAdmin: user.is_admin,
         },
       },
       { status: 201 },

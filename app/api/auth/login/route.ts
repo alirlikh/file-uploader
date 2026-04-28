@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
         { status: 400 },
       );
 
-    const user = getUserByEmail(String(email).toLowerCase());
+    const user = await getUserByEmail(String(email).toLowerCase());
     const dummy =
       "$2a$12$invalidhashfortimingprotection00000000000000000000000";
     const match = await bcrypt.compare(
@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
       sub: user.id,
       email: user.email,
       name: user.name,
-      isAdmin: !!user.is_admin,
+      isAdmin: user.is_admin,
       plan: user.plan,
     });
     const res = NextResponse.json({
@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
         id: user.id,
         email: user.email,
         name: user.name,
-        isAdmin: !!user.is_admin,
+        isAdmin: user.is_admin,
       },
     });
     setSessionCookie(res, token);

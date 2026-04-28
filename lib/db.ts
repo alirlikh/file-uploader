@@ -1,79 +1,163 @@
 /**
- * lib/db.ts — SQLite via better-sqlite3. Schema auto-migrates on import.
+ * lib/db.ts — PostgreSQL via the `pg` connection pool.
  *
- * v4 additions:
- *   users.is_blocked         — admin block/unblock
- *   users.is_admin           — admin flag (first signup becomes admin)
- *   users.plan               — "free" | "pro" | "business" | "custom"
- *   users.custom_limit_bytes — per-user override set by admin
+ * Public API surface is identical to the SQLite version EXCEPT every
+ * function is now async (returns a Promise). Callers must await them.
+ *
+ * Connection string is read from DATABASE_URL (standard Postgres format):
+ *   postgresql://user:password@host:5432/dbname
+ *   postgresql://user:password@host:5432/dbname?sslmode=require   ← for cloud DBs
+ *
+ * Schema is auto-migrated via runMigrations() which is called once at
+ * module load time using a top-level await in an IIFE. Next.js handles
+ * this correctly because db.ts is only imported in server-side code.
  */
 
-import Database from "better-sqlite3";
-import path from "path";
+import { Pool, type PoolClient } from "pg";
 
-const DB_PATH = path.join(process.cwd(), "vaultchunk.db");
-const globalDb = global as typeof global & { __db?: Database.Database };
-if (!globalDb.__db) {
-  globalDb.__db = new Database(DB_PATH);
-  globalDb.__db.pragma("journal_mode = WAL");
-  globalDb.__db.pragma("foreign_keys = ON");
+// ── Connection pool ────────────────────────────────────────────────────────────
+// Singleton across hot-reloads in dev
+const globalPool = global as typeof global & { __pgPool?: Pool };
+
+if (!globalPool.__pgPool) {
+  globalPool.__pgPool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    // Sane defaults for a web app:
+    max: 20, // max connections in pool
+    idleTimeoutMillis: 30_000,
+    connectionTimeoutMillis: 5_000,
+    // Force SSL in production; skip for local dev
+    ssl:
+      process.env.NODE_ENV === "production"
+        ? { rejectUnauthorized: false } // set to true + provide CA cert for stricter security
+        : false,
+  });
+
+  globalPool.__pgPool.on("error", (err) => {
+    console.error("[pg] Unexpected pool error:", err);
+  });
 }
-export const db = globalDb.__db;
 
-// ── Schema ────────────────────────────────────────────────────────────────────
-db.exec(`
+export const pool = globalPool.__pgPool;
+
+/** Run a query using a pooled connection. */
+export async function query<T extends object = Record<string, unknown>>(
+  sql: string,
+  params?: unknown[],
+): Promise<T[]> {
+  const result = await pool.query<T>(sql, params);
+  return result.rows;
+}
+
+/** Run multiple statements inside a single serializable transaction. */
+export async function withTransaction<T>(
+  fn: (client: PoolClient) => Promise<T>,
+): Promise<T> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await fn(client);
+    await client.query("COMMIT");
+    return result;
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+// ── Schema migrations ──────────────────────────────────────────────────────────
+/**
+ * Idempotent migrations — safe to run on every startup.
+ * Add new migrations to the end of the array; never edit existing ones.
+ *
+ * Each migration is identified by its index. The migrations table records
+ * which have already been applied so each runs exactly once.
+ */
+const MIGRATIONS: string[] = [
+  // 0 — initial schema
+  `
   CREATE TABLE IF NOT EXISTS users (
-    id                TEXT PRIMARY KEY,
-    email             TEXT UNIQUE NOT NULL,
-    name              TEXT NOT NULL,
-    password_hash     TEXT NOT NULL,
-    is_blocked        INTEGER NOT NULL DEFAULT 0,
-    is_admin          INTEGER NOT NULL DEFAULT 0,
-    plan              TEXT NOT NULL DEFAULT 'free',
-    custom_limit_bytes INTEGER,
-    created_at        TEXT NOT NULL DEFAULT (datetime('now'))
+    id                  TEXT        PRIMARY KEY,
+    email               TEXT        UNIQUE NOT NULL,
+    name                TEXT        NOT NULL,
+    password_hash       TEXT        NOT NULL,
+    is_blocked          BOOLEAN     NOT NULL DEFAULT FALSE,
+    is_admin            BOOLEAN     NOT NULL DEFAULT FALSE,
+    plan                TEXT        NOT NULL DEFAULT 'free'
+                        CHECK (plan IN ('free','pro','business','custom')),
+    custom_limit_bytes  BIGINT,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
+
   CREATE TABLE IF NOT EXISTS files (
-    id                TEXT PRIMARY KEY,
-    user_id           TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    original_filename TEXT NOT NULL,
-    file_size_bytes   INTEGER NOT NULL,
-    file_hash         TEXT NOT NULL,
-    mime_type         TEXT NOT NULL,
-    total_chunks      INTEGER NOT NULL,
-    uploaded_at       TEXT NOT NULL DEFAULT (datetime('now'))
+    id                TEXT        PRIMARY KEY,
+    user_id           TEXT        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    original_filename TEXT        NOT NULL,
+    file_size_bytes   BIGINT      NOT NULL,
+    file_hash         TEXT        NOT NULL,
+    mime_type         TEXT        NOT NULL,
+    total_chunks      INTEGER     NOT NULL,
+    uploaded_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
+
   CREATE TABLE IF NOT EXISTS chunks (
-    id          TEXT PRIMARY KEY,
-    file_id     TEXT NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+    id          TEXT    PRIMARY KEY,
+    file_id     TEXT    NOT NULL REFERENCES files(id) ON DELETE CASCADE,
     chunk_index INTEGER NOT NULL,
-    chunk_key   TEXT NOT NULL,
-    chunk_hash  TEXT NOT NULL,
-    size_bytes  INTEGER NOT NULL
+    chunk_key   TEXT    NOT NULL,
+    chunk_hash  TEXT    NOT NULL,
+    size_bytes  BIGINT  NOT NULL
   );
+
   CREATE TABLE IF NOT EXISTS daily_quota (
-    user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    date       TEXT NOT NULL,
-    bytes_used INTEGER NOT NULL DEFAULT 0,
+    user_id    TEXT   NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    date       DATE   NOT NULL DEFAULT CURRENT_DATE,
+    bytes_used BIGINT NOT NULL DEFAULT 0,
     PRIMARY KEY (user_id, date)
   );
-  CREATE INDEX IF NOT EXISTS idx_files_user ON files(user_id);
-  CREATE INDEX IF NOT EXISTS idx_chunks_file ON chunks(file_id);
-  CREATE INDEX IF NOT EXISTS idx_quota ON daily_quota(user_id, date);
-`);
 
-// Idempotent column migrations for existing DBs
-const cols = (
-  db.prepare("PRAGMA table_info(users)").all() as { name: string }[]
-).map((c) => c.name);
-if (!cols.includes("is_blocked"))
-  db.exec("ALTER TABLE users ADD COLUMN is_blocked INTEGER NOT NULL DEFAULT 0");
-if (!cols.includes("is_admin"))
-  db.exec("ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0");
-if (!cols.includes("plan"))
-  db.exec("ALTER TABLE users ADD COLUMN plan TEXT NOT NULL DEFAULT 'free'");
-if (!cols.includes("custom_limit_bytes"))
-  db.exec("ALTER TABLE users ADD COLUMN custom_limit_bytes INTEGER");
+  CREATE INDEX IF NOT EXISTS idx_files_user      ON files(user_id);
+  CREATE INDEX IF NOT EXISTS idx_files_uploaded  ON files(uploaded_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_chunks_file     ON chunks(file_id);
+  CREATE INDEX IF NOT EXISTS idx_quota_user_date ON daily_quota(user_id, date);
+  `,
+];
+
+async function runMigrations(): Promise<void> {
+  // Ensure the migrations tracking table exists
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS _migrations (
+      id         SERIAL PRIMARY KEY,
+      version    INTEGER NOT NULL UNIQUE,
+      applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  for (let version = 0; version < MIGRATIONS.length; version++) {
+    const { rows } = await pool.query(
+      "SELECT 1 FROM _migrations WHERE version = $1",
+      [version],
+    );
+    if (rows.length > 0) continue; // already applied
+
+    await withTransaction(async (client) => {
+      await client.query(MIGRATIONS[version]);
+      await client.query("INSERT INTO _migrations (version) VALUES ($1)", [
+        version,
+      ]);
+    });
+    console.log(`[db] Migration ${version} applied`);
+  }
+}
+
+// Run migrations at module load — Next.js awaits top-level promises in
+// server modules before handling requests.
+await runMigrations().catch((err) => {
+  console.error("[db] Migration failed:", err);
+  process.exit(1);
+});
 
 // ── PLANS ─────────────────────────────────────────────────────────────────────
 
@@ -93,21 +177,21 @@ export const PLANS: Record<
     label: "Free",
     price: "$0/mo",
     color: "#5a6a7a",
-    limitBytes: 1 * 1024 * 1024 * 1024, // 1 GB/day
+    limitBytes: 1 * 1024 * 1024 * 1024,
     features: ["1 GB daily quota", "10 MB chunks", "24 h link expiry"],
   },
   pro: {
     label: "Pro",
     price: "$9/mo",
     color: "#47ffd4",
-    limitBytes: 10 * 1024 * 1024 * 1024, // 10 GB/day
+    limitBytes: 10 * 1024 * 1024 * 1024,
     features: ["10 GB daily quota", "Priority support", "48 h link expiry"],
   },
   business: {
     label: "Business",
     price: "$29/mo",
     color: "#e8ff47",
-    limitBytes: 50 * 1024 * 1024 * 1024, // 50 GB/day
+    limitBytes: 50 * 1024 * 1024 * 1024,
     features: ["50 GB daily quota", "Dedicated support", "7-day link expiry"],
   },
   custom: {
@@ -134,8 +218,8 @@ export interface DbUser {
   email: string;
   name: string;
   password_hash: string;
-  is_blocked: number;
-  is_admin: number;
+  is_blocked: boolean;
+  is_admin: boolean;
   plan: Plan;
   custom_limit_bytes: number | null;
   created_at: string;
@@ -161,28 +245,47 @@ export interface DbChunk {
 
 // ── USER QUERIES ──────────────────────────────────────────────────────────────
 
-export const getUserByEmail = (email: string) =>
-  db.prepare("SELECT * FROM users WHERE email=?").get(email) as
-    | DbUser
-    | undefined;
+export async function getUserByEmail(
+  email: string,
+): Promise<DbUser | undefined> {
+  const rows = await query<DbUser>("SELECT * FROM users WHERE email = $1", [
+    email,
+  ]);
+  return rows[0];
+}
 
-export const getUserById = (id: string) =>
-  db.prepare("SELECT * FROM users WHERE id=?").get(id) as DbUser | undefined;
+export async function getUserById(id: string): Promise<DbUser | undefined> {
+  const rows = await query<DbUser>("SELECT * FROM users WHERE id = $1", [id]);
+  return rows[0];
+}
 
-/** First signup becomes admin automatically. */
-export function createUser(
+/** First signup becomes admin automatically (checked inside a transaction). */
+export async function createUser(
   id: string,
   email: string,
   name: string,
   hash: string,
-): DbUser {
-  const count = (
-    db.prepare("SELECT COUNT(*) as c FROM users").get() as { c: number }
-  ).c;
-  db.prepare(
-    "INSERT INTO users (id,email,name,password_hash,is_admin) VALUES (?,?,?,?,?)",
-  ).run(id, email, name, hash, count === 0 ? 1 : 0);
-  return getUserById(id)!;
+): Promise<DbUser> {
+  return withTransaction(async (client) => {
+    const {
+      rows: [{ count }],
+    } = await client.query<{ count: string }>(
+      "SELECT COUNT(*) AS count FROM users",
+    );
+    const isAdmin = parseInt(count, 10) === 0;
+
+    await client.query(
+      `INSERT INTO users (id, email, name, password_hash, is_admin)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [id, email, name, hash, isAdmin],
+    );
+
+    const { rows } = await client.query<DbUser>(
+      "SELECT * FROM users WHERE id = $1",
+      [id],
+    );
+    return rows[0];
+  });
 }
 
 // ── ADMIN QUERIES ─────────────────────────────────────────────────────────────
@@ -193,99 +296,113 @@ export interface AdminUserRow extends DbUser {
   bytes_used_today: number;
 }
 
-export function getAllUsersForAdmin(): AdminUserRow[] {
-  return db
-    .prepare(
-      `
-    SELECT u.*,
-      COUNT(DISTINCT f.id)               AS file_count,
-      COALESCE(SUM(f.file_size_bytes),0) AS total_bytes_stored,
-      COALESCE(q.bytes_used,0)           AS bytes_used_today
+export async function getAllUsersForAdmin(): Promise<AdminUserRow[]> {
+  return query<AdminUserRow>(`
+    SELECT
+      u.*,
+      COUNT(DISTINCT f.id)::BIGINT               AS file_count,
+      COALESCE(SUM(f.file_size_bytes), 0)::BIGINT AS total_bytes_stored,
+      COALESCE(q.bytes_used, 0)::BIGINT           AS bytes_used_today
     FROM users u
-    LEFT JOIN files f ON f.user_id=u.id
-    LEFT JOIN daily_quota q ON q.user_id=u.id AND q.date=date('now')
-    GROUP BY u.id
+    LEFT JOIN files f ON f.user_id = u.id
+    LEFT JOIN daily_quota q ON q.user_id = u.id AND q.date = CURRENT_DATE
+    GROUP BY u.id, q.bytes_used
     ORDER BY u.created_at DESC
-  `,
-    )
-    .all() as AdminUserRow[];
+  `);
 }
 
-export const setUserBlocked = (id: string, v: boolean) =>
-  db.prepare("UPDATE users SET is_blocked=? WHERE id=?").run(v ? 1 : 0, id);
+export async function setUserBlocked(
+  id: string,
+  blocked: boolean,
+): Promise<void> {
+  await query("UPDATE users SET is_blocked = $1 WHERE id = $2", [blocked, id]);
+}
 
-export function setUserPlan(
+export async function setUserPlan(
   id: string,
   plan: Plan,
   customBytes?: number | null,
-) {
-  db.prepare("UPDATE users SET plan=?,custom_limit_bytes=? WHERE id=?").run(
-    plan,
-    customBytes ?? null,
-    id,
+): Promise<void> {
+  await query(
+    "UPDATE users SET plan = $1, custom_limit_bytes = $2 WHERE id = $3",
+    [plan, customBytes ?? null, id],
   );
 }
 
-export const setUserAdmin = (id: string, v: boolean) =>
-  db.prepare("UPDATE users SET is_admin=? WHERE id=?").run(v ? 1 : 0, id);
+export async function setUserAdmin(
+  id: string,
+  isAdmin: boolean,
+): Promise<void> {
+  await query("UPDATE users SET is_admin = $1 WHERE id = $2", [isAdmin, id]);
+}
 
-export function getGlobalStats() {
+export async function getGlobalStats(): Promise<{
+  users: number;
+  files: number;
+  totalBytes: number;
+  blocked: number;
+  todayUploads: number;
+}> {
+  const [row] = await query<{
+    users: string;
+    files: string;
+    total_bytes: string;
+    blocked: string;
+    today_uploads: string;
+  }>(`
+    SELECT
+      (SELECT COUNT(*) FROM users)::BIGINT                                         AS users,
+      (SELECT COUNT(*) FROM files)::BIGINT                                         AS files,
+      (SELECT COALESCE(SUM(file_size_bytes), 0) FROM files)::BIGINT                AS total_bytes,
+      (SELECT COUNT(*) FROM users WHERE is_blocked = TRUE)::BIGINT                 AS blocked,
+      (SELECT COUNT(*) FROM files WHERE uploaded_at::DATE = CURRENT_DATE)::BIGINT  AS today_uploads
+  `);
   return {
-    users: (
-      db.prepare("SELECT COUNT(*) as c FROM users").get() as { c: number }
-    ).c,
-    files: (
-      db.prepare("SELECT COUNT(*) as c FROM files").get() as { c: number }
-    ).c,
-    totalBytes: (
-      db
-        .prepare("SELECT COALESCE(SUM(file_size_bytes),0) as b FROM files")
-        .get() as { b: number }
-    ).b,
-    blocked: (
-      db
-        .prepare("SELECT COUNT(*) as c FROM users WHERE is_blocked=1")
-        .get() as { c: number }
-    ).c,
-    todayUploads: (
-      db
-        .prepare(
-          "SELECT COUNT(*) as c FROM files WHERE DATE(uploaded_at)=DATE('now')",
-        )
-        .get() as { c: number }
-    ).c,
+    users: parseInt(row.users, 10),
+    files: parseInt(row.files, 10),
+    totalBytes: parseInt(row.total_bytes, 10),
+    blocked: parseInt(row.blocked, 10),
+    todayUploads: parseInt(row.today_uploads, 10),
   };
 }
 
 // ── FILE QUERIES ──────────────────────────────────────────────────────────────
 
-export function getFilesByUser(
+export async function getFilesByUser(
   userId: string,
-): (DbFile & { chunks: DbChunk[] })[] {
-  const files = db
-    .prepare("SELECT * FROM files WHERE user_id=? ORDER BY uploaded_at DESC")
-    .all(userId) as DbFile[];
-  return files.map((f) => ({
-    ...f,
-    chunks: db
-      .prepare("SELECT * FROM chunks WHERE file_id=? ORDER BY chunk_index")
-      .all(f.id) as DbChunk[],
-  }));
+): Promise<(DbFile & { chunks: DbChunk[] })[]> {
+  const files = await query<DbFile>(
+    "SELECT * FROM files WHERE user_id = $1 ORDER BY uploaded_at DESC",
+    [userId],
+  );
+  // Batch-fetch all chunks in one query instead of N+1
+  if (files.length === 0) return [];
+  const fileIds = files.map((f) => f.id);
+  const chunks = await query<DbChunk>(
+    `SELECT * FROM chunks WHERE file_id = ANY($1) ORDER BY chunk_index`,
+    [fileIds],
+  );
+  const chunksByFile = new Map<string, DbChunk[]>();
+  for (const c of chunks) {
+    const arr = chunksByFile.get(c.file_id) ?? [];
+    arr.push(c);
+    chunksByFile.set(c.file_id, arr);
+  }
+  return files.map((f) => ({ ...f, chunks: chunksByFile.get(f.id) ?? [] }));
 }
 
-export function getFileById(
+export async function getFileById(
   fileId: string,
-): (DbFile & { chunks: DbChunk[] }) | null {
-  const f = db.prepare("SELECT * FROM files WHERE id=?").get(fileId) as
-    | DbFile
-    | undefined;
-  if (!f) return null;
-  return {
-    ...f,
-    chunks: db
-      .prepare("SELECT * FROM chunks WHERE file_id=? ORDER BY chunk_index")
-      .all(f.id) as DbChunk[],
-  };
+): Promise<(DbFile & { chunks: DbChunk[] }) | null> {
+  const files = await query<DbFile>("SELECT * FROM files WHERE id = $1", [
+    fileId,
+  ]);
+  if (!files[0]) return null;
+  const chunks = await query<DbChunk>(
+    "SELECT * FROM chunks WHERE file_id = $1 ORDER BY chunk_index",
+    [fileId],
+  );
+  return { ...files[0], chunks };
 }
 
 export interface CreateFileInput {
@@ -304,87 +421,124 @@ export interface CreateFileInput {
   }[];
 }
 
-export function createFile(input: CreateFileInput): DbFile {
-  const iFile = db.prepare(
-    "INSERT INTO files (id,user_id,original_filename,file_size_bytes,file_hash,mime_type,total_chunks) VALUES (?,?,?,?,?,?,?)",
-  );
-  const iChunk = db.prepare(
-    "INSERT INTO chunks (id,file_id,chunk_index,chunk_key,chunk_hash,size_bytes) VALUES (?,?,?,?,?,?)",
-  );
-  db.transaction(() => {
-    iFile.run(
-      input.id,
-      input.userId,
-      input.originalFilename,
-      input.fileSizeBytes,
-      input.fileHash,
-      input.mimeType,
-      input.chunks.length,
-    );
-    for (const c of input.chunks)
-      iChunk.run(
-        c.id,
+export async function createFile(input: CreateFileInput): Promise<DbFile> {
+  return withTransaction(async (client) => {
+    await client.query(
+      `INSERT INTO files (id, user_id, original_filename, file_size_bytes, file_hash, mime_type, total_chunks)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [
         input.id,
-        c.chunkIndex,
-        c.chunkKey,
-        c.chunkHash,
-        c.sizeBytes,
+        input.userId,
+        input.originalFilename,
+        input.fileSizeBytes,
+        input.fileHash,
+        input.mimeType,
+        input.chunks.length,
+      ],
+    );
+
+    for (const c of input.chunks) {
+      await client.query(
+        `INSERT INTO chunks (id, file_id, chunk_index, chunk_key, chunk_hash, size_bytes)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [c.id, input.id, c.chunkIndex, c.chunkKey, c.chunkHash, c.sizeBytes],
       );
-  })();
-  return db.prepare("SELECT * FROM files WHERE id=?").get(input.id) as DbFile;
+    }
+
+    const { rows } = await client.query<DbFile>(
+      "SELECT * FROM files WHERE id = $1",
+      [input.id],
+    );
+    return rows[0];
+  });
 }
 
-export const deleteFile = (id: string, userId: string) =>
-  db.prepare("DELETE FROM files WHERE id=? AND user_id=?").run(id, userId)
-    .changes > 0;
+export async function deleteFile(id: string, userId: string): Promise<boolean> {
+  const result = await pool.query(
+    "DELETE FROM files WHERE id = $1 AND user_id = $2",
+    [id, userId],
+  );
+  return (result.rowCount ?? 0) > 0;
+}
 
-export const adminDeleteFile = (id: string) =>
-  db.prepare("DELETE FROM files WHERE id=?").run(id).changes > 0;
+export async function adminDeleteFile(id: string): Promise<boolean> {
+  const result = await pool.query("DELETE FROM files WHERE id = $1", [id]);
+  return (result.rowCount ?? 0) > 0;
+}
 
 // ── QUOTA ─────────────────────────────────────────────────────────────────────
 
-const today = () => new Date().toISOString().slice(0, 10);
-
-export function getDailyUsed(userId: string): number {
-  const r = db
-    .prepare("SELECT bytes_used FROM daily_quota WHERE user_id=? AND date=?")
-    .get(userId, today()) as { bytes_used: number } | undefined;
-  return r?.bytes_used ?? 0;
+export async function getDailyUsed(userId: string): Promise<number> {
+  const rows = await query<{ bytes_used: string }>(
+    "SELECT bytes_used FROM daily_quota WHERE user_id = $1 AND date = CURRENT_DATE",
+    [userId],
+  );
+  return rows[0] ? parseInt(rows[0].bytes_used, 10) : 0;
 }
 
-export function getDailyLimitForUser(userId: string): number {
-  const u = getUserById(userId);
+export async function getDailyLimitForUser(userId: string): Promise<number> {
+  const u = await getUserById(userId);
   return getPlanLimit(u?.plan ?? "free", u?.custom_limit_bytes);
 }
 
-export function getDailyLimit() {
+export function getDailyLimit(): number {
   return PLANS.free.limitBytes;
 }
 
-export function reserveQuota(
+/**
+ * Atomically check and reserve quota inside a serializable transaction.
+ * Uses INSERT ... ON CONFLICT DO UPDATE so concurrent requests can't
+ * both pass the quota check simultaneously.
+ */
+export async function reserveQuota(
   userId: string,
   bytes: number,
-):
+): Promise<
   | { allowed: true; limit: number }
-  | { allowed: false; used: number; limit: number } {
-  const d = today();
-  const u = getUserById(userId);
-  const limit = getPlanLimit(u?.plan ?? "free", u?.custom_limit_bytes);
-  return db.transaction(() => {
-    const row = db
-      .prepare("SELECT bytes_used FROM daily_quota WHERE user_id=? AND date=?")
-      .get(userId, d) as { bytes_used: number } | undefined;
-    const used = row?.bytes_used ?? 0;
+  | { allowed: false; used: number; limit: number }
+> {
+  return withTransaction(async (client) => {
+    // Lock the user row to serialise concurrent uploads from same user
+    const {
+      rows: [user],
+    } = await client.query<DbUser>(
+      "SELECT * FROM users WHERE id = $1 FOR UPDATE",
+      [userId],
+    );
+    const limit = getPlanLimit(user?.plan ?? "free", user?.custom_limit_bytes);
+
+    const {
+      rows: [quota],
+    } = await client.query<{ bytes_used: string }>(
+      "SELECT bytes_used FROM daily_quota WHERE user_id = $1 AND date = CURRENT_DATE",
+      [userId],
+    );
+    const used = quota ? parseInt(quota.bytes_used, 10) : 0;
+
     if (used + bytes > limit) return { allowed: false as const, used, limit };
-    db.prepare(
-      "INSERT INTO daily_quota (user_id,date,bytes_used) VALUES (?,?,?) ON CONFLICT (user_id,date) DO UPDATE SET bytes_used=bytes_used+excluded.bytes_used",
-    ).run(userId, d, bytes);
+
+    await client.query(
+      `
+      INSERT INTO daily_quota (user_id, date, bytes_used)
+      VALUES ($1, CURRENT_DATE, $2)
+      ON CONFLICT (user_id, date)
+      DO UPDATE SET bytes_used = daily_quota.bytes_used + EXCLUDED.bytes_used
+    `,
+      [userId, bytes],
+    );
+
     return { allowed: true as const, limit };
-  })();
+  });
 }
 
-export function releaseQuota(userId: string, bytes: number) {
-  db.prepare(
-    "UPDATE daily_quota SET bytes_used=MAX(0,bytes_used-?) WHERE user_id=? AND date=?",
-  ).run(bytes, userId, today());
+export async function releaseQuota(
+  userId: string,
+  bytes: number,
+): Promise<void> {
+  await query(
+    `UPDATE daily_quota
+     SET bytes_used = GREATEST(0, bytes_used - $1)
+     WHERE user_id = $2 AND date = CURRENT_DATE`,
+    [bytes, userId],
+  );
 }
