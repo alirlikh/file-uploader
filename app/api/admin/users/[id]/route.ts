@@ -6,8 +6,8 @@ import {
   setUserPlan,
   setUserAdmin,
   PLANS,
-  type Plan,
 } from "@/lib/db";
+import { Plan } from "@/app/utils/types";
 
 export async function PATCH(
   req: NextRequest,

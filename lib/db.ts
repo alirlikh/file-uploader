@@ -13,6 +13,14 @@
  * this correctly because db.ts is only imported in server-side code.
  */
 
+import {
+  AdminUserRow,
+  CreateFileInput,
+  DbChunk,
+  DbFile,
+  DbUser,
+  Plan,
+} from "@/app/utils/types";
 import { Pool, type PoolClient } from "pg";
 
 // ── Connection pool ────────────────────────────────────────────────────────────
@@ -75,6 +83,7 @@ export async function withTransaction<T>(
  * Each migration is identified by its index. The migrations table records
  * which have already been applied so each runs exactly once.
  */
+
 const MIGRATIONS: string[] = [
   // 0 — initial schema
   `
@@ -161,8 +170,6 @@ await runMigrations().catch((err) => {
 
 // ── PLANS ─────────────────────────────────────────────────────────────────────
 
-export type Plan = "free" | "pro" | "business" | "custom";
-
 export const PLANS: Record<
   Plan,
   {
@@ -211,38 +218,6 @@ export function getPlanLimit(
   return PLANS[plan].limitBytes;
 }
 
-// ── TYPES ─────────────────────────────────────────────────────────────────────
-
-export interface DbUser {
-  id: string;
-  email: string;
-  name: string;
-  password_hash: string;
-  is_blocked: boolean;
-  is_admin: boolean;
-  plan: Plan;
-  custom_limit_bytes: number | null;
-  created_at: string;
-}
-export interface DbFile {
-  id: string;
-  user_id: string;
-  original_filename: string;
-  file_size_bytes: number;
-  file_hash: string;
-  mime_type: string;
-  total_chunks: number;
-  uploaded_at: string;
-}
-export interface DbChunk {
-  id: string;
-  file_id: string;
-  chunk_index: number;
-  chunk_key: string;
-  chunk_hash: string;
-  size_bytes: number;
-}
-
 // ── USER QUERIES ──────────────────────────────────────────────────────────────
 
 export async function getUserByEmail(
@@ -289,12 +264,6 @@ export async function createUser(
 }
 
 // ── ADMIN QUERIES ─────────────────────────────────────────────────────────────
-
-export interface AdminUserRow extends DbUser {
-  file_count: number;
-  total_bytes_stored: number;
-  bytes_used_today: number;
-}
 
 export async function getAllUsersForAdmin(): Promise<AdminUserRow[]> {
   return query<AdminUserRow>(`
@@ -403,22 +372,6 @@ export async function getFileById(
     [fileId],
   );
   return { ...files[0], chunks };
-}
-
-export interface CreateFileInput {
-  id: string;
-  userId: string;
-  originalFilename: string;
-  fileSizeBytes: number;
-  fileHash: string;
-  mimeType: string;
-  chunks: {
-    id: string;
-    chunkIndex: number;
-    chunkKey: string;
-    chunkHash: string;
-    sizeBytes: number;
-  }[];
 }
 
 export async function createFile(input: CreateFileInput): Promise<DbFile> {

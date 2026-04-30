@@ -2,8 +2,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import styles from "./AuthPage.view.module.css";
-
-type Mode = "login" | "signup";
+import { Mode } from "@/app/utils/types";
 
 const PLAN_PREVIEW = [
   { name: "Free", price: "$0/mo", quota: "1 GB/day", color: "#5a6a7a" },

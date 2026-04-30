@@ -4,46 +4,16 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import styles from "./AdminPage.view.module.css";
 
-// ── TYPES ─────────────────────────────────────────────────────────────────────
-type Plan = "free" | "pro" | "business" | "custom";
-interface AdminUser {
-  id: string;
-  email: string;
-  name: string;
-  isAdmin: boolean;
-  isBlocked: boolean;
-  plan: Plan;
-  planLabel: string;
-  planColor: string;
-  customLimitBytes: number | null;
-  fileCount: number;
-  totalBytesStored: number;
-  bytesUsedToday: number;
-  createdAt: string;
-}
-interface GlobalStats {
-  users: number;
-  files: number;
-  totalBytes: number;
-  blocked: number;
-  todayUploads: number;
-}
-
-const PLANS: Record<Plan, { label: string; color: string; quota: string }> = {
-  free: { label: "Free", color: "#5a6a7a", quota: "1 GB/day" },
-  pro: { label: "Pro", color: "#47ffd4", quota: "10 GB/day" },
-  business: { label: "Business", color: "#e8ff47", quota: "50 GB/day" },
-  custom: { label: "Custom", color: "#ff8c47", quota: "Custom" },
-};
+import { AdminUser, GlobalStats, Plan } from "@/app/utils/types";
+import { fmt } from "@/app/utils/helpers";
+import StatCard from "../../meterials/Card/StatCard/Stat.card";
+import PlanBadge from "../../meterials/Badge/PlaneBadge/Plan.badge";
+import PlanModal from "../../meterials/Modal/PlanModal/Plan.modal";
+import { PLANS } from "@/app/data/static/plan";
+import Link from "next/link";
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
-function fmt(bytes: number): string {
-  if (bytes >= 1e12) return `${(bytes / 1e12).toFixed(1)} TB`;
-  if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(1)} GB`;
-  if (bytes >= 1e6) return `${(bytes / 1e6).toFixed(1)} MB`;
-  if (bytes >= 1e3) return `${(bytes / 1e3).toFixed(0)} KB`;
-  return `${bytes} B`;
-}
+//todo
 function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString(undefined, {
     month: "short",
@@ -52,142 +22,6 @@ function fmtDate(iso: string) {
   });
 }
 
-// ── STAT CARD ─────────────────────────────────────────────────────────────────
-function StatCard({
-  label,
-  value,
-  accent,
-}: {
-  label: string;
-  value: string | number;
-  accent?: boolean;
-}) {
-  return (
-    <div
-      className={`${styles.statCard} ${accent ? styles.statCardAccent : ""}`}
-    >
-      <span className={styles.statVal}>{value}</span>
-      <span className={styles.statLabel}>{label}</span>
-    </div>
-  );
-}
-
-// ── PLAN BADGE ────────────────────────────────────────────────────────────────
-function PlanBadge({ plan }: { plan: Plan }) {
-  const p = PLANS[plan];
-  return (
-    <span
-      className={styles.planBadge}
-      style={{ borderColor: p.color, color: p.color }}
-    >
-      {p.label}
-    </span>
-  );
-}
-
-// ── EDIT PLAN MODAL ───────────────────────────────────────────────────────────
-function PlanModal({
-  user,
-  onClose,
-  onSave,
-}: {
-  user: AdminUser;
-  onClose: () => void;
-  onSave: (plan: Plan, customBytes?: number) => void;
-}) {
-  const [plan, setPlan] = useState<Plan>(user.plan);
-  const [customGB, setCustomGB] = useState<string>(
-    user.customLimitBytes
-      ? String(Math.round(user.customLimitBytes / 1024 / 1024 / 1024))
-      : "",
-  );
-  const [saving, setSaving] = useState(false);
-
-  const save = async () => {
-    setSaving(true);
-    const customBytes =
-      plan === "custom"
-        ? parseFloat(customGB) * 1024 * 1024 * 1024 || undefined
-        : undefined;
-    await onSave(plan, customBytes);
-    setSaving(false);
-    onClose();
-  };
-
-  return (
-    <div className={styles.modalOverlay} onClick={onClose}>
-      <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-        <div className={styles.modalHeader}>
-          <span className={styles.modalTitle}>Edit Plan — {user.name}</span>
-          <button className={styles.modalClose} onClick={onClose}>
-            ✕
-          </button>
-        </div>
-
-        <div className={styles.modalBody}>
-          <p className={styles.modalSub}>{user.email}</p>
-
-          <div className={styles.planOptions}>
-            {(Object.entries(PLANS) as [Plan, (typeof PLANS)[Plan]][]).map(
-              ([key, p]) => (
-                <button
-                  key={key}
-                  className={`${styles.planOption} ${plan === key ? styles.planOptionActive : ""}`}
-                  style={{ "--pc": p.color } as React.CSSProperties}
-                  onClick={() => setPlan(key)}
-                >
-                  <div className={styles.planOptionHeader}>
-                    <span
-                      className={styles.planOptionName}
-                      style={{ color: p.color }}
-                    >
-                      {p.label}
-                    </span>
-                    <span className={styles.planOptionQuota}>{p.quota}</span>
-                  </div>
-                  {plan === key && (
-                    <span className={styles.planOptionCheck}>✓</span>
-                  )}
-                </button>
-              ),
-            )}
-          </div>
-
-          {plan === "custom" && (
-            <div className={styles.customField}>
-              <label className={styles.customLabel}>
-                CUSTOM DAILY LIMIT (GB)
-              </label>
-              <div className={styles.customInputRow}>
-                <input
-                  className={styles.customInput}
-                  type="number"
-                  min="1"
-                  step="1"
-                  value={customGB}
-                  onChange={(e) => setCustomGB(e.target.value)}
-                  placeholder="e.g. 100"
-                />
-                <span className={styles.customUnit}>GB / day</span>
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className={styles.modalFooter}>
-          <button className={styles.cancelBtn} onClick={onClose}>
-            Cancel
-          </button>
-          <button className={styles.saveBtn} onClick={save} disabled={saving}>
-            {saving ? "Saving…" : "Save Plan"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── MAIN ADMIN PAGE ───────────────────────────────────────────────────────────
 export default function AdminPageView() {
   const router = useRouter();
   const [users, setUsers] = useState<AdminUser[]>([]);
@@ -274,8 +108,10 @@ export default function AdminPageView() {
 
   const toggleBlock = (u: AdminUser) =>
     patch(u.id, { action: u.isBlocked ? "unblock" : "block" });
+
   const toggleAdmin = (u: AdminUser) =>
     patch(u.id, { action: "setAdmin", isAdmin: !u.isAdmin });
+
   const savePlan = (u: AdminUser, plan: Plan, customBytes?: number) =>
     patch(u.id, {
       action: "setPlan",
@@ -302,9 +138,9 @@ export default function AdminPageView() {
       <div className={styles.container}>
         <header className={styles.header}>
           <div className={styles.headerLeft}>
-            <a href="/" className={styles.backLink}>
+            <Link href="/" className={styles.backLink}>
               ← App
-            </a>
+            </Link>
             <div className={styles.logo}>
               <span className={styles.logoIcon}>⬡</span>
               <span className={styles.logoText}>VAULTCHUNK</span>
@@ -417,7 +253,7 @@ export default function AdminPageView() {
               <tr>
                 <th>User</th>
                 <th>Plan</th>
-                <th>Today's Usage</th>
+                <th>Today&apos;s Usage</th>
                 <th>Storage</th>
                 <th>Files</th>
                 <th>Joined</th>
