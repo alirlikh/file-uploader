@@ -7,6 +7,7 @@ import { SessionUser, Tab } from "@/app/utils/types";
 import UploadTab from "../../meterials/Tab/UploadTab/Upload.tab";
 import FilesTab from "../../meterials/Tab/FilesTab/Files.tab";
 import CombinerTab from "../../meterials/Tab/CombinerTab/Combiner.tab";
+import BillingTab from "../../meterials/Tab/BillingTab/Billling.tab";
 
 /**
  * Browser-direct-to-S3 upload flow — file body NEVER passes through Next.js:
@@ -82,6 +83,9 @@ export default function Home() {
                     ⬡ Admin
                   </a>
                 )}
+                <a href="/pricing" className={styles.pricingLink}>
+                  Plans
+                </a>
                 <span className={styles.userName}>{user.name}</span>
                 <button className={styles.logoutBtn} onClick={logout}>
                   Sign out
@@ -91,12 +95,13 @@ export default function Home() {
           </div>
           <p className={styles.tagline}>
             Chunked file upload · per-chunk retry · real-time speed ·{" "}
-            {user?.planLabel} plan
+            <span style={{ color: user?.planColor }}>{user?.planLabel}</span>{" "}
+            plan
           </p>
         </header>
 
         <div className={styles.tabs}>
-          {(["upload", "files", "combiner"] as Tab[]).map((t) => (
+          {(["upload", "files", "combiner", "billing"] as Tab[]).map((t) => (
             <button
               key={t}
               className={`${styles.tab} ${tab === t ? styles.tabActive : ""}`}
@@ -113,6 +118,7 @@ export default function Home() {
                 </>
               )}
               {t === "combiner" && "⬡ Combiner"}
+              {t === "billing" && "◎ Billing"}
             </button>
           ))}
         </div>
@@ -123,6 +129,7 @@ export default function Home() {
           )}
           {tab === "files" && <FilesTab key={badge} onRefresh={refreshUser} />}
           {tab === "combiner" && <CombinerTab />}
+          {tab === "billing" && user && <BillingTab user={user} />}
         </div>
       </div>
     </main>
