@@ -6,7 +6,8 @@
 import { S3Client, DeleteObjectsCommand } from "@aws-sdk/client-s3";
 
 export const s3 = new S3Client({
-  region: "default",
+  forcePathStyle: true,
+  region: process.env.LIARA_REGION!,
   endpoint: process.env.LIARA_ENDPOINT!,
   credentials: {
     accessKeyId: process.env.LIARA_ACCESS_KEY!,

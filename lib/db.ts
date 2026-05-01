@@ -24,8 +24,9 @@ if (!globalPool.__pgPool) {
     connectionString: process.env.DATABASE_URL,
     // Sane defaults for a web app:
     max: 20, // max connections in pool
-    idleTimeoutMillis: 30_000,
-    connectionTimeoutMillis: 5_000,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 15000,
+    keepAlive: true,
     // Force SSL in production; skip for local dev
     ssl:
       process.env.NODE_ENV === "production"

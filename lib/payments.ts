@@ -56,6 +56,7 @@ export const ACCEPTED_CURRENCIES = [
   { symbol: "MATIC", label: "Polygon", icon: "◆" },
   { symbol: "TRX", label: "Tron (TRC-20)", icon: "◆" },
   { symbol: "DOGE", label: "Dogecoin", icon: "Ð" },
+  { symbol: "TON", label: "Toncoin", icon: "◆" },
 ];
 
 // ── NOWPayments response types ────────────────────────────────────────────────

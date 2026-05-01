@@ -22,6 +22,7 @@ export const CURRENCIES: CurrencyOption[] = [
   { symbol: "MATIC", label: "Polygon", icon: "◆" },
   { symbol: "TRX", label: "TRON (TRC-20)", icon: "◆" },
   { symbol: "DOGE", label: "Dogecoin", icon: "Ð" },
+  { symbol: "TON", label: "Toncoin", icon: "◆" },
 ];
 
 export const STATUS_LABELS: Record<string, string> = {
