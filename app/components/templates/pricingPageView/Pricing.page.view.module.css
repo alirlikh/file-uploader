@@ -1,0 +1,665 @@
+:root {
+  --bg: #0a0b0d;
+  --surface: #0f1114;
+  --surface2: #161a1f;
+  --border: #252b33;
+  --border-bright: #3a4452;
+  --accent: #e8ff47;
+  --accent2: #47ffd4;
+  --text: #c8d4e0;
+  --text-dim: #5a6a7a;
+  --text-bright: #eaf2ff;
+  --error: #ff4747;
+  --warning: #ffaa47;
+  --success: #47ff8a;
+  --font-mono: "IBM Plex Mono", "Courier New", monospace;
+  --font-display: "Space Mono", "IBM Plex Mono", monospace;
+}
+
+/* ── Layout ──────────────────────────────────────────────────────────────────── */
+.main {
+  min-height: 100vh;
+  background: var(--bg);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 0 16px 80px;
+  position: relative;
+  font-family: var(--font-mono);
+  color: var(--text);
+  overflow-x: hidden;
+}
+.grid {
+  position: fixed;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(232, 255, 71, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(232, 255, 71, 0.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+  pointer-events: none;
+  z-index: 0;
+}
+.container {
+  width: 100%;
+  max-width: 900px;
+  position: relative;
+  z-index: 1;
+}
+
+/* ── Nav ─────────────────────────────────────────────────────────────────────── */
+.nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 24px 0 40px;
+}
+.navBack {
+  font-size: 12px;
+  color: var(--text-dim);
+  text-decoration: none;
+  transition: color 0.1s;
+}
+.navBack:hover {
+  color: var(--accent2);
+}
+.navLogo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.navLogoIcon {
+  font-size: 18px;
+  color: var(--accent);
+}
+.navLogoText {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  color: var(--text-bright);
+}
+
+/* ── Hero ────────────────────────────────────────────────────────────────────── */
+.hero {
+  text-align: center;
+  margin-bottom: 56px;
+}
+.heroTitle {
+  font-family: var(--font-display);
+  font-size: clamp(24px, 4vw, 36px);
+  font-weight: 700;
+  color: var(--text-bright);
+  letter-spacing: 0.04em;
+  margin-bottom: 16px;
+}
+.heroSub {
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1.8;
+  max-width: 520px;
+  margin: 0 auto;
+}
+
+/* ── Plan cards ──────────────────────────────────────────────────────────────── */
+.planGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+  margin-bottom: 32px;
+}
+
+.planCard {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--plan-color, var(--border));
+  border-radius: 2px;
+  padding: 28px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  position: relative;
+  transition: border-color 0.15s;
+}
+.planCard:hover {
+  border-color: var(--plan-color, var(--border-bright));
+}
+.planCardPopular {
+  border-color: var(--plan-color, var(--border));
+  box-shadow: 0 0 0 1px rgba(71, 255, 212, 0.15);
+}
+.planCardCurrent {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.popularBadge,
+.currentBadge {
+  position: absolute;
+  top: -1px;
+  right: 16px;
+  font-size: 9px;
+  letter-spacing: 0.15em;
+  padding: 4px 10px;
+  border-radius: 0 0 3px 3px;
+}
+.popularBadge {
+  background: var(--accent2);
+  color: var(--bg);
+}
+.currentBadge {
+  background: var(--success);
+  color: var(--bg);
+}
+
+.planTop {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.planName {
+  font-size: 18px;
+  font-weight: 700;
+  font-family: var(--font-display);
+  letter-spacing: 0.06em;
+}
+.planPriceRow {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.planPrice {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text-bright);
+  font-family: var(--font-display);
+}
+.planQuota {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.featureList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+}
+.featureItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text);
+}
+.featureCheck {
+  font-size: 11px;
+  flex-shrink: 0;
+  padding-top: 1px;
+}
+
+.planAction {
+  margin-top: auto;
+}
+.upgradeBtn {
+  width: 100%;
+  padding: 13px 0;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--bg);
+  border-radius: 2px;
+  transition:
+    opacity 0.1s,
+    transform 0.1s;
+}
+.upgradeBtn:hover:not(:disabled) {
+  opacity: 0.88;
+  transform: translateY(-1px);
+}
+.upgradeBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+}
+.freePlanBtn,
+.currentPlanBtn {
+  width: 100%;
+  padding: 12px 0;
+  background: transparent;
+  border: 1px solid var(--border-bright);
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  cursor: default;
+  border-radius: 2px;
+}
+
+/* ── Checkout box ────────────────────────────────────────────────────────────── */
+.checkoutBox {
+  background: var(--surface);
+  border: 1px solid var(--border-bright);
+  border-radius: 2px;
+  padding: 28px;
+  margin-bottom: 32px;
+}
+.checkoutHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.checkoutTitle {
+  font-size: 14px;
+  color: var(--text-bright);
+  font-weight: 600;
+}
+.checkoutClose {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+.checkoutClose:hover {
+  color: var(--text);
+}
+.checkoutSub {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-bottom: 20px;
+}
+
+.currencyGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 8px;
+  margin-bottom: 24px;
+}
+.currencyBtn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 8px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  cursor: pointer;
+  border-radius: 2px;
+  transition:
+    border-color 0.1s,
+    color 0.1s;
+}
+.currencyBtn:hover {
+  border-color: var(--border-bright);
+  color: var(--text);
+}
+.currencyBtnActive {
+  border-color: var(--accent2);
+  color: var(--accent2);
+  background: rgba(71, 255, 212, 0.06);
+}
+.currencyIcon {
+  font-size: 18px;
+  line-height: 1;
+}
+.currencySymbol {
+  font-size: 12px;
+  font-weight: 700;
+}
+.currencyLabel {
+  font-size: 9px;
+  color: inherit;
+  opacity: 0.7;
+  text-align: center;
+}
+
+.createErr {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border: 1px solid var(--error);
+  background: rgba(255, 71, 71, 0.06);
+  color: var(--error);
+  font-size: 12px;
+  border-radius: 2px;
+  margin-bottom: 16px;
+}
+
+.payNowBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  padding: 16px;
+  background: var(--accent);
+  color: var(--bg);
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  border-radius: 2px;
+  transition: background 0.1s;
+}
+.payNowBtn:hover:not(:disabled) {
+  background: #f0ff6a;
+}
+.payNowBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.paySpinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(0, 0, 0, 0.3);
+  border-top-color: var(--bg);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.checkoutNote {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 14px;
+  line-height: 1.7;
+}
+
+/* ── FAQ ─────────────────────────────────────────────────────────────────────── */
+.faq {
+  margin-top: 48px;
+  padding-top: 40px;
+  border-top: 1px solid var(--border);
+}
+.faqTitle {
+  font-family: var(--font-display);
+  font-size: 16px;
+  color: var(--text-bright);
+  margin-bottom: 24px;
+  letter-spacing: 0.06em;
+}
+.faqGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 20px;
+}
+.faqItem {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.faqQ {
+  font-size: 12px;
+  color: var(--accent2);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+.faqA {
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.7;
+}
+
+/* ── Payment modal ───────────────────────────────────────────────────────────── */
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+  padding: 20px;
+}
+.modal {
+  background: var(--surface);
+  border: 1px solid var(--border-bright);
+  border-radius: 2px;
+  width: 100%;
+  max-width: 480px;
+  overflow: hidden;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.modalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface2);
+}
+.modalTitle {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.modalPlanLabel {
+  font-size: 16px;
+  font-weight: 700;
+  font-family: var(--font-display);
+  letter-spacing: 0.06em;
+}
+.modalPrice {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.modalClose {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+.modalClose:hover {
+  color: var(--text);
+}
+
+/* Status banners */
+.statusBanner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 24px;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+.statusWaiting {
+  background: rgba(90, 106, 122, 0.12);
+  color: var(--text-dim);
+}
+.statusSuccess {
+  background: rgba(71, 255, 138, 0.08);
+  color: var(--success);
+}
+.statusFailed {
+  background: rgba(255, 71, 71, 0.08);
+  color: var(--error);
+}
+.statusPartial {
+  background: rgba(255, 170, 71, 0.08);
+  color: var(--warning);
+}
+.statusDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+  animation: blink 1.2s ease-in-out infinite;
+}
+@keyframes blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+.countdown {
+  margin-left: auto;
+  font-size: 11px;
+  font-family: var(--font-display);
+}
+
+/* Payment body */
+.paymentBody {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.qrWrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.qrImage {
+  border: 4px solid var(--surface2);
+  border-radius: 2px;
+  background: #fff;
+  display: block;
+}
+.qrHint {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.payRow {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.payFieldLabel {
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: var(--text-dim);
+}
+.payFieldValue {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.payCode {
+  font-size: 13px;
+  color: var(--text-bright);
+  background: var(--surface2);
+  padding: 8px 12px;
+  border-radius: 2px;
+  flex: 1;
+  min-width: 0;
+  line-height: 1.5;
+}
+
+.copyBtn {
+  padding: 6px 14px;
+  background: transparent;
+  border: 1px solid var(--border-bright);
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  cursor: pointer;
+  border-radius: 2px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition:
+    color 0.1s,
+    border-color 0.1s;
+}
+.copyBtn:hover {
+  color: var(--accent2);
+  border-color: var(--accent2);
+}
+
+.networkWarn {
+  font-size: 11px;
+  color: var(--warning);
+  background: rgba(255, 170, 71, 0.08);
+  border: 1px solid rgba(255, 170, 71, 0.25);
+  padding: 12px 14px;
+  border-radius: 2px;
+  line-height: 1.6;
+}
+.partialWarn {
+  font-size: 11px;
+  color: var(--warning);
+  line-height: 1.6;
+  padding: 10px 14px;
+  background: rgba(255, 170, 71, 0.06);
+  border: 1px solid rgba(255, 170, 71, 0.2);
+  border-radius: 2px;
+}
+
+/* Success / failed bodies */
+.successBody,
+.failedBody {
+  padding: 40px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  text-align: center;
+}
+.successIcon {
+  font-size: 48px;
+  color: var(--success);
+}
+.successTitle {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-bright);
+  font-family: var(--font-display);
+}
+.successSub {
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1.7;
+  max-width: 320px;
+}
+.failedTitle {
+  font-size: 16px;
+  color: var(--error);
+  font-weight: 700;
+}
+.failedSub {
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1.7;
+}
+.doneBtn {
+  padding: 13px 32px;
+  background: var(--accent);
+  color: var(--bg);
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  border-radius: 2px;
+  transition: background 0.1s;
+  margin-top: 8px;
+}
+.doneBtn:hover {
+  background: #f0ff6a;
+}

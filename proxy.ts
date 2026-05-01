@@ -1,22 +1,35 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifySession } from "@/lib/auth";
 
-const PUBLIC = ["/auth", "/api/auth/login", "/api/auth/signup"];
+// Paths that don't require authentication
+const PUBLIC_PATHS = [
+  "/auth",
+  "/pricing", // public pricing page
+  "/api/auth/login",
+  "/api/auth/signup",
+  "/api/payments/webhook", // NOWPayments IPN — no cookie auth
+];
 
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
+
+  // Let Next.js internals and static files through
   if (pathname.startsWith("/_next") || pathname.startsWith("/favicon"))
     return NextResponse.next();
 
   const token = req.cookies.get("vaultchunk_session")?.value ?? null;
   const session = token ? await verifySession(token) : null;
-  const isPublic = PUBLIC.some((p) => pathname.startsWith(p));
+  const isPublic = PUBLIC_PATHS.some((p) => pathname.startsWith(p));
 
-  if (!session && !isPublic && !pathname.startsWith("/api/"))
+  // Unauthenticated → redirect to /auth (except public paths and API routes)
+  if (!session && !isPublic && !pathname.startsWith("/api/")) {
     return NextResponse.redirect(new URL("/auth", req.url));
+  }
 
-  if (session && pathname === "/auth")
+  // Already logged in → redirect away from /auth
+  if (session && pathname === "/auth") {
     return NextResponse.redirect(new URL("/", req.url));
+  }
 
   // Admin-only area
   if (pathname.startsWith("/admin") && !pathname.startsWith("/api/admin")) {

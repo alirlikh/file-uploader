@@ -56,7 +56,7 @@ export interface ChunkLive {
 }
 
 export type UploadState = "idle" | "uploading" | "done" | "error";
-export type Tab = "upload" | "files" | "combiner";
+export type Tab = "upload" | "files" | "combiner" | "billing";
 export type CombinerMode = "files" | "urls";
 
 export interface UrlEntry {
@@ -154,4 +154,61 @@ export interface AdminUserRow extends DbUser {
   file_count: number;
   total_bytes_stored: number;
   bytes_used_today: number;
+}
+
+///pricing
+
+export type PaidPlan = "pro" | "business";
+export type PayStatus =
+  | "waiting"
+  | "confirming"
+  | "confirmed"
+  | "finished"
+  | "partially_paid"
+  | "failed"
+  | "expired"
+  | "refunded";
+
+export interface PlanInfo {
+  id: PaidPlan | "free";
+  label: string;
+  price: string;
+  priceUsd: number;
+  color: string;
+  quota: string;
+  features: string[];
+  popular?: boolean;
+}
+
+export interface CurrencyOption {
+  symbol: string;
+  label: string;
+  icon: string;
+}
+
+export interface PaymentResponse {
+  paymentId: string;
+  nowPaymentId: string;
+  payAddress: string;
+  payAmount: number;
+  payCurrency: string;
+  priceUsd: number;
+  plan: string;
+  planLabel: string;
+  expiresAt: string | null;
+  status: string;
+}
+
+//biling
+
+export interface PaymentRecord {
+  id: string;
+  plan: string;
+  planLabel: string;
+  status: string;
+  payCurrency: string | null;
+  payAmount: number | null;
+  priceUsd: number;
+  createdAt: string;
+  confirmedAt: string | null;
 }

@@ -52,3 +52,15 @@ export function urlFilename(url: string): string {
     return "";
   }
 }
+
+/** Generate a QR code URL using the free qrserver API. */
+export function qrUrl(data: string) {
+  return `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(data)}`;
+}
+
+export function copyToClipboard(text: string, setCopied: (v: boolean) => void) {
+  navigator.clipboard.writeText(text).then(() => {
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  });
+}

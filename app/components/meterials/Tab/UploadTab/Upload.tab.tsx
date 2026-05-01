@@ -6,10 +6,11 @@ import {
   UploadResult,
   UploadState,
 } from "@/app/utils/types";
-import { useRouter } from "next/router";
+
 import { useCallback, useRef, useState } from "react";
 import styles from "../../../templates/mainPageView/MainPage.view.module.css";
 import QuotaBar from "../../Bar/QuotaBar/Quota.bar";
+import { useRouter } from "next/navigation";
 
 export default function UploadTab({
   user,
@@ -48,6 +49,7 @@ export default function UploadTab({
         : bps >= 1e3
           ? `${(bps / 1e3).toFixed(0)} KB/s`
           : `${Math.round(bps)} B/s`;
+
   const fmtEta = (s: number) =>
     !isFinite(s) || s < 0
       ? "–"
@@ -111,6 +113,7 @@ export default function UploadTab({
     setEta("");
     setBytesUp(0);
   };
+
   const onDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setDrag(false);
@@ -309,6 +312,7 @@ export default function UploadTab({
   const cancel = () => {
     abortRef.current?.abort();
   };
+
   const reset = () => {
     setSel(null);
     setResult(null);

@@ -1,5 +1,5 @@
 import { StoredFile } from "@/app/utils/types";
-import { useRouter } from "next/router";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import styles from "../../../templates/mainPageView/MainPage.view.module.css";

@@ -13,14 +13,6 @@
  * this correctly because db.ts is only imported in server-side code.
  */
 
-import {
-  AdminUserRow,
-  CreateFileInput,
-  DbChunk,
-  DbFile,
-  DbUser,
-  Plan,
-} from "@/app/utils/types";
 import { Pool, type PoolClient } from "pg";
 
 // ── Connection pool ────────────────────────────────────────────────────────────
@@ -83,7 +75,6 @@ export async function withTransaction<T>(
  * Each migration is identified by its index. The migrations table records
  * which have already been applied so each runs exactly once.
  */
-
 const MIGRATIONS: string[] = [
   // 0 — initial schema
   `
@@ -132,6 +123,33 @@ const MIGRATIONS: string[] = [
   CREATE INDEX IF NOT EXISTS idx_chunks_file     ON chunks(file_id);
   CREATE INDEX IF NOT EXISTS idx_quota_user_date ON daily_quota(user_id, date);
   `,
+
+  // 1 — crypto payments
+  `
+  CREATE TABLE IF NOT EXISTS payments (
+    id                  TEXT        PRIMARY KEY,   -- our UUID, used as order_id
+    user_id             TEXT        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    plan                TEXT        NOT NULL,       -- plan being purchased
+    status              TEXT        NOT NULL DEFAULT 'waiting',
+    -- NOWPayments fields (populated after creation)
+    now_payment_id      TEXT,                       -- NOWPayments internal ID
+    pay_address         TEXT,                       -- crypto address to send to
+    pay_amount          NUMERIC,                    -- amount in pay_currency
+    pay_currency        TEXT,                       -- e.g. "btc"
+    price_usd           NUMERIC     NOT NULL,
+    -- Expiry — NOWPayments rates expire, after which user must retry
+    expires_at          TIMESTAMPTZ,
+    -- Lifecycle
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    confirmed_at        TIMESTAMPTZ,
+    -- Raw webhook payload for audit trail
+    last_webhook_body   JSONB
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_payments_user   ON payments(user_id);
+  CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(status);
+  CREATE INDEX IF NOT EXISTS idx_payments_now_id ON payments(now_payment_id);
+  `,
 ];
 
 async function runMigrations(): Promise<void> {
@@ -169,6 +187,8 @@ await runMigrations().catch((err) => {
 });
 
 // ── PLANS ─────────────────────────────────────────────────────────────────────
+
+export type Plan = "free" | "pro" | "business" | "custom";
 
 export const PLANS: Record<
   Plan,
@@ -218,6 +238,38 @@ export function getPlanLimit(
   return PLANS[plan].limitBytes;
 }
 
+// ── TYPES ─────────────────────────────────────────────────────────────────────
+
+export interface DbUser {
+  id: string;
+  email: string;
+  name: string;
+  password_hash: string;
+  is_blocked: boolean;
+  is_admin: boolean;
+  plan: Plan;
+  custom_limit_bytes: number | null;
+  created_at: string;
+}
+export interface DbFile {
+  id: string;
+  user_id: string;
+  original_filename: string;
+  file_size_bytes: number;
+  file_hash: string;
+  mime_type: string;
+  total_chunks: number;
+  uploaded_at: string;
+}
+export interface DbChunk {
+  id: string;
+  file_id: string;
+  chunk_index: number;
+  chunk_key: string;
+  chunk_hash: string;
+  size_bytes: number;
+}
+
 // ── USER QUERIES ──────────────────────────────────────────────────────────────
 
 export async function getUserByEmail(
@@ -264,6 +316,12 @@ export async function createUser(
 }
 
 // ── ADMIN QUERIES ─────────────────────────────────────────────────────────────
+
+export interface AdminUserRow extends DbUser {
+  file_count: number;
+  total_bytes_stored: number;
+  bytes_used_today: number;
+}
 
 export async function getAllUsersForAdmin(): Promise<AdminUserRow[]> {
   return query<AdminUserRow>(`
@@ -372,6 +430,22 @@ export async function getFileById(
     [fileId],
   );
   return { ...files[0], chunks };
+}
+
+export interface CreateFileInput {
+  id: string;
+  userId: string;
+  originalFilename: string;
+  fileSizeBytes: number;
+  fileHash: string;
+  mimeType: string;
+  chunks: {
+    id: string;
+    chunkIndex: number;
+    chunkKey: string;
+    chunkHash: string;
+    sizeBytes: number;
+  }[];
 }
 
 export async function createFile(input: CreateFileInput): Promise<DbFile> {
@@ -493,5 +567,98 @@ export async function releaseQuota(
      SET bytes_used = GREATEST(0, bytes_used - $1)
      WHERE user_id = $2 AND date = CURRENT_DATE`,
     [bytes, userId],
+  );
+}
+
+// ── PAYMENT QUERIES ───────────────────────────────────────────────────────────
+
+export interface DbPayment {
+  id: string;
+  user_id: string;
+  plan: string;
+  status: string;
+  now_payment_id: string | null;
+  pay_address: string | null;
+  pay_amount: number | null;
+  pay_currency: string | null;
+  price_usd: number;
+  expires_at: string | null;
+  created_at: string;
+  confirmed_at: string | null;
+  last_webhook_body: object | null;
+}
+
+export async function createPaymentRecord(input: {
+  id: string;
+  userId: string;
+  plan: string;
+  priceUsd: number;
+}): Promise<DbPayment> {
+  const rows = await query<DbPayment>(
+    `INSERT INTO payments (id, user_id, plan, price_usd)
+     VALUES ($1, $2, $3, $4) RETURNING *`,
+    [input.id, input.userId, input.plan, input.priceUsd],
+  );
+  return rows[0];
+}
+
+export async function updatePaymentFromGateway(input: {
+  id: string;
+  nowPaymentId: string;
+  payAddress: string;
+  payAmount: number;
+  payCurrency: string;
+  expiresAt?: string;
+}): Promise<void> {
+  await query(
+    `UPDATE payments
+     SET now_payment_id = $1,
+         pay_address    = $2,
+         pay_amount     = $3,
+         pay_currency   = $4,
+         expires_at     = $5,
+         status         = 'waiting'
+     WHERE id = $6`,
+    [
+      input.nowPaymentId,
+      input.payAddress,
+      input.payAmount,
+      input.payCurrency,
+      input.expiresAt ?? null,
+      input.id,
+    ],
+  );
+}
+
+export async function updatePaymentStatus(
+  nowPaymentId: string,
+  status: string,
+  webhookBody: object,
+): Promise<DbPayment | undefined> {
+  const rows = await query<DbPayment>(
+    `UPDATE payments
+     SET status             = $1,
+         last_webhook_body  = $2,
+         confirmed_at       = CASE WHEN $1 IN ('confirmed','finished') THEN NOW() ELSE confirmed_at END
+     WHERE now_payment_id = $3
+     RETURNING *`,
+    [status, JSON.stringify(webhookBody), nowPaymentId],
+  );
+  return rows[0];
+}
+
+export async function getPaymentById(
+  id: string,
+): Promise<DbPayment | undefined> {
+  const rows = await query<DbPayment>("SELECT * FROM payments WHERE id = $1", [
+    id,
+  ]);
+  return rows[0];
+}
+
+export async function getPaymentsByUser(userId: string): Promise<DbPayment[]> {
+  return query<DbPayment>(
+    "SELECT * FROM payments WHERE user_id = $1 ORDER BY created_at DESC",
+    [userId],
   );
 }
