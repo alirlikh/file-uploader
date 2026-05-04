@@ -22,16 +22,27 @@ const globalPool = global as typeof global & { __pgPool?: Pool };
 if (!globalPool.__pgPool) {
   globalPool.__pgPool = new Pool({
     connectionString: process.env.DATABASE_URL,
-    // Sane defaults for a web app:
-    max: 20, // max connections in pool
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 15000,
+
+    max: 10, // small pool — connections are held briefly
+    idleTimeoutMillis: 60_000, // 60 s — outlasts most proxy idle timeouts
+    connectionTimeoutMillis: 10_000, // wait up to 10 s to acquire a connection
+
+    // ── TCP keep-alive ────────────────────────────────────────────────────────
+    // Prevents the OS/proxy from silently killing idle TCP connections while
+    // S3 uploads run between DB round-trips. Essential for large file uploads.
     keepAlive: true,
-    // Force SSL in production; skip for local dev
+    keepAliveInitialDelayMillis: 10_000,
+
     ssl:
       process.env.NODE_ENV === "production"
-        ? { rejectUnauthorized: false } // set to true + provide CA cert for stricter security
+        ? { rejectUnauthorized: false }
         : false,
+  });
+
+  // Long statement timeout so bulk inserts never get cancelled mid-flight.
+  // Fires once per new physical connection.
+  globalPool.__pgPool.on("connect", (client) => {
+    client.query("SET statement_timeout = '300s'").catch(() => {});
   });
 
   globalPool.__pgPool.on("error", (err) => {
@@ -50,22 +61,93 @@ export async function query<T extends object = Record<string, unknown>>(
   return result.rows;
 }
 
-/** Run multiple statements inside a single serializable transaction. */
+/**
+ * Run multiple statements inside a single transaction.
+ *
+ * Safe against dead connections: if the connection is already broken when we
+ * try to ROLLBACK, we skip the rollback (Postgres will roll back automatically
+ * when the connection drops) and just release the client back to the pool.
+ */
 export async function withTransaction<T>(
   fn: (client: PoolClient) => Promise<T>,
 ): Promise<T> {
   const client = await pool.connect();
+  let began = false;
   try {
     await client.query("BEGIN");
+    began = true;
     const result = await fn(client);
     await client.query("COMMIT");
     return result;
   } catch (err) {
-    await client.query("ROLLBACK");
+    // Only attempt ROLLBACK if the connection is still alive.
+    // A terminated connection will roll back automatically on the server side.
+    if (began && isConnectionAlive(client)) {
+      try {
+        await client.query("ROLLBACK");
+      } catch {
+        /* already dead */
+      }
+    }
     throw err;
   } finally {
-    client.release();
+    // release(true) destroys the connection rather than returning it to the
+    // pool if it's in an unknown state (e.g. partial transaction left open).
+    client.release(began && !isConnectionAlive(client));
   }
+}
+
+/**
+ * Heuristic to check if a pg PoolClient is still usable.
+ * The `pg` library stores the raw socket on `client.connection.stream`.
+ */
+function isConnectionAlive(client: PoolClient): boolean {
+  try {
+    // Access the underlying socket — if it's destroyed, the connection is dead
+    const stream = (
+      client as unknown as { connection: { stream: { destroyed: boolean } } }
+    ).connection?.stream;
+    return !stream?.destroyed;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Retry a DB operation up to `maxAttempts` times with exponential back-off.
+ * Use this around operations that follow long-running external work (e.g.
+ * persisting file metadata after all S3 uploads complete).
+ */
+export async function withRetry<T>(
+  fn: () => Promise<T>,
+  maxAttempts = 3,
+  baseDelayMs = 200,
+): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      const isRetryable =
+        err instanceof Error &&
+        (err.message.includes("terminated") ||
+          err.message.includes("not queryable") ||
+          err.message.includes("Connection") ||
+          err.message.includes("ECONNRESET") ||
+          err.message.includes("timeout"));
+
+      if (!isRetryable || attempt === maxAttempts - 1) throw err;
+
+      const delay = baseDelayMs * Math.pow(2, attempt);
+      console.warn(
+        `[db] Retryable error on attempt ${attempt + 1}/${maxAttempts}, retrying in ${delay}ms:`,
+        (err as Error).message,
+      );
+      await new Promise<void>((r) => setTimeout(r, delay));
+    }
+  }
+  throw lastErr;
 }
 
 // ── Schema migrations ──────────────────────────────────────────────────────────
@@ -451,6 +533,7 @@ export interface CreateFileInput {
 
 export async function createFile(input: CreateFileInput): Promise<DbFile> {
   return withTransaction(async (client) => {
+    // Insert the file record
     await client.query(
       `INSERT INTO files (id, user_id, original_filename, file_size_bytes, file_hash, mime_type, total_chunks)
        VALUES ($1, $2, $3, $4, $5, $6, $7)`,
@@ -465,11 +548,38 @@ export async function createFile(input: CreateFileInput): Promise<DbFile> {
       ],
     );
 
-    for (const c of input.chunks) {
+    // ── Bulk insert all chunks in ONE query ───────────────────────────────────
+    // Avoids N sequential round-trips (critical for large files with many chunks).
+    // We build a single INSERT ... VALUES ($1,$2,...),($7,$8,...) statement.
+    //
+    // Postgres supports up to 65535 parameters per query. Each chunk row uses
+    // 6 params, so we can safely bulk-insert up to 10922 chunks at once —
+    // far beyond any realistic file size at 10 MB per chunk (10922 × 10 MB = ~106 GB).
+    if (input.chunks.length > 0) {
+      const COLS_PER_CHUNK = 6;
+      const valuePlaceholders = input.chunks
+        .map((_, i) => {
+          const base = i * COLS_PER_CHUNK;
+          return `($${base + 1},$${base + 2},$${base + 3},$${base + 4},$${base + 5},$${base + 6})`;
+        })
+        .join(",");
+
+      const params: unknown[] = [];
+      for (const c of input.chunks) {
+        params.push(
+          c.id,
+          input.id,
+          c.chunkIndex,
+          c.chunkKey,
+          c.chunkHash,
+          c.sizeBytes,
+        );
+      }
+
       await client.query(
         `INSERT INTO chunks (id, file_id, chunk_index, chunk_key, chunk_hash, size_bytes)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [c.id, input.id, c.chunkIndex, c.chunkKey, c.chunkHash, c.sizeBytes],
+         VALUES ${valuePlaceholders}`,
+        params,
       );
     }
 
