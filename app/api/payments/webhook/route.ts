@@ -27,7 +27,7 @@ import {
   SUCCESS_STATUSES,
   type NowPaymentStatus,
 } from "@/lib/payments";
-import { updatePaymentStatus, setUserPlan, getPaymentById } from "@/lib/db";
+import { updatePaymentStatus, setUserPlan } from "@/lib/db";
 
 export async function POST(req: NextRequest) {
   // Read raw body for signature verification

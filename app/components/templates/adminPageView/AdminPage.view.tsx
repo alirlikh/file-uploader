@@ -274,10 +274,9 @@ export default function AdminPageView() {
                 const dailyLimit =
                   u.plan === "custom" && u.customLimitBytes
                     ? u.customLimitBytes
-                    : ({ free: 1, pro: 10, business: 50 }[u.plan] ?? 1) *
-                      1024 *
-                      1024 *
-                      1024;
+                    : ({ free: 1, pro: 10, business: 50, custom: 100 }[
+                        u.plan
+                      ] ?? 1 * 1024 * 1024 * 1024);
                 const pct = Math.min(
                   100,
                   Math.round((u.bytesUsedToday / dailyLimit) * 100),
