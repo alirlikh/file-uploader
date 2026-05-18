@@ -1,31 +1,36 @@
 /**
  * POST /api/payments/create
- *
- * Creates a crypto payment for a plan upgrade.
- *
- * Body: { plan: "pro"|"business", currency: "btc"|"eth"|... }
- *
- * Flow:
- *  1. Validate user is authenticated and not already on this plan
- *  2. Insert a pending payment row in DB
- *  3. Call NOWPayments API to get the crypto address + amount
- *  4. Update DB row with NOWPayments response
- *  5. Return payment details to client (address, amount, currency, QR data)
+ * Body: { plan, currency, discountCode? }
+ * Flow: validate → reserve → call NOWPayments → send payment OTP → return
  */
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
+import bcrypt from "bcryptjs";
 import { getSession } from "@/lib/auth";
 import {
   getUserById,
   createPaymentRecord,
   updatePaymentFromGateway,
+  validateDiscountCode,
+  redeemDiscountCode,
+  upsertPaymentOtp,
+  getPlanPrices,
+  PLAN_DEFAULTS,
 } from "@/lib/db";
 import {
   createPayment,
-  PLAN_PRICES,
   ACCEPTED_CURRENCIES,
   type PaidPlan,
 } from "@/lib/payments";
+import { sendOtpEmail } from "@/lib/email";
+
+const OTP_EXPIRY_MIN = 10;
+
+function generateOtp(): string {
+  const buf = Buffer.allocUnsafe(4);
+  crypto.getRandomValues(buf);
+  return (buf.readUInt32BE(0) % 1_000_000).toString().padStart(6, "0");
+}
 
 export async function POST(req: NextRequest) {
   const session = await getSession(req);
@@ -38,66 +43,75 @@ export async function POST(req: NextRequest) {
   if (user.is_blocked)
     return NextResponse.json({ error: "Account suspended." }, { status: 403 });
 
-  let body: { plan: string; currency: string };
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON." }, { status: 400 });
-  }
+  const b = await req.json().catch(() => ({}));
+  const { plan, currency, discountCode } = b;
 
-  const { plan, currency } = body;
-
-  // Validate plan
   if (!["pro", "business"].includes(plan))
-    return NextResponse.json(
-      { error: "Invalid plan. Choose pro or business." },
-      { status: 400 },
-    );
-
-  // Validate currency
-  const validCurrencies = ACCEPTED_CURRENCIES.map((c) =>
-    c.symbol.toLowerCase(),
-  );
-  if (!validCurrencies.includes(currency?.toLowerCase()))
+    return NextResponse.json({ error: "Invalid plan." }, { status: 400 });
+  if (
+    !ACCEPTED_CURRENCIES.find(
+      (c) => c.symbol.toLowerCase() === currency?.toLowerCase(),
+    )
+  )
     return NextResponse.json(
       { error: "Unsupported currency." },
       { status: 400 },
     );
 
-  // Don't allow paying for the same or lower plan
-  const planRank: Record<string, number> = {
+  // Don't allow downgrade
+  const rank: Record<string, number> = {
     free: 0,
     pro: 1,
     business: 2,
     custom: 3,
   };
-  if ((planRank[user.plan] ?? 0) >= (planRank[plan] ?? 0)) {
+  if ((rank[user.plan] ?? 0) >= (rank[plan] ?? 0))
     return NextResponse.json(
       { error: `You are already on the ${user.plan} plan or higher.` },
       { status: 409 },
     );
+
+  // Load live prices
+  const prices = await getPlanPrices();
+  let priceUsd = prices[plan] ?? (plan === "pro" ? 9 : 29);
+  let discountPct = 0;
+  let discountId = "";
+
+  // Validate discount code
+  if (discountCode) {
+    const result = await validateDiscountCode(String(discountCode), plan);
+    if (!result.valid)
+      return NextResponse.json({ error: result.error }, { status: 400 });
+    discountPct = result.row.discount_pct;
+    discountId = result.row.id;
+    priceUsd = +(priceUsd * (1 - discountPct / 100)).toFixed(2);
+    if (priceUsd < 0.01) priceUsd = 0.01;
+    await redeemDiscountCode(discountId);
   }
 
-  const paidPlan = plan as PaidPlan;
-  const price = PLAN_PRICES[paidPlan];
   const paymentId = randomUUID();
+  const planLabel = PLAN_DEFAULTS[plan as PaidPlan]?.label ?? plan;
 
-  // Step 1: create DB record immediately (idempotency anchor)
+  // Create DB record
   await createPaymentRecord({
     id: paymentId,
     userId: session.sub,
-    plan: paidPlan,
-    priceUsd: price.usd,
+    plan: plan as PaidPlan,
+    priceUsd,
+    discountCode: discountCode || null,
+    discountPct,
   });
 
-  // Step 2: call NOWPayments
+  // Call NOWPayments
   let nowPayment;
   try {
     nowPayment = await createPayment({
-      plan: paidPlan,
+      plan: plan as PaidPlan,
       currency: currency.toLowerCase(),
       userId: session.sub,
       paymentId,
+      priceUsd,
+      description: `${planLabel} Plan — VaultChunk`,
     });
   } catch (err) {
     console.error("[payments/create] NOWPayments error:", err);
@@ -107,7 +121,6 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Step 3: store NOWPayments response in DB
   await updatePaymentFromGateway({
     id: paymentId,
     nowPaymentId: nowPayment.payment_id,
@@ -117,16 +130,43 @@ export async function POST(req: NextRequest) {
     expiresAt: nowPayment.expiration_estimate_date,
   });
 
+  // Generate and send payment OTP (extra confirmation step)
+  const otp = generateOtp();
+  const expiresAt = new Date(Date.now() + OTP_EXPIRY_MIN * 60 * 1000);
+  const otpId = randomUUID();
+  const otpHash = await bcrypt.hash(otp, 10);
+
+  await upsertPaymentOtp({ id: otpId, paymentId, otpHash, expiresAt });
+
+  try {
+    await sendOtpEmail({
+      to: user.email,
+      otp,
+      name: user.name,
+      expiresMinutes: OTP_EXPIRY_MIN,
+      subject: `${otp} — Confirm your VaultChunk payment`,
+      headline: "Confirm your payment",
+    });
+  } catch (err) {
+    console.error("[payments/create] OTP email failed:", err);
+    // Don't block — user can request resend
+  }
+
   return NextResponse.json({
     paymentId,
     nowPaymentId: nowPayment.payment_id,
     payAddress: nowPayment.pay_address,
     payAmount: nowPayment.pay_amount,
     payCurrency: nowPayment.pay_currency.toUpperCase(),
-    priceUsd: price.usd,
-    plan: paidPlan,
-    planLabel: price.label,
+    priceUsd,
+    originalPrice: prices[plan] ?? (plan === "pro" ? 9 : 29),
+    discountPct,
+    discountCode: discountCode || null,
+    plan,
+    planLabel,
     expiresAt: nowPayment.expiration_estimate_date ?? null,
     status: "waiting",
+    otpRequired: true,
+    otpExpiresAt: expiresAt.toISOString(),
   });
 }

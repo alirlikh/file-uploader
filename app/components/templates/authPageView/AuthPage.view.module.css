@@ -272,3 +272,175 @@
   margin: 4px 0 0;
   line-height: 1.6;
 }
+
+/* ── OTP step ────────────────────────────────────────────────────────────────── */
+.otpWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.otpHeader {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.otpTitle {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-bright);
+  font-family: var(--font-display);
+  letter-spacing: 0.04em;
+  margin: 0;
+}
+.otpSub {
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.7;
+  margin: 0;
+}
+.otpEmailHint {
+  color: var(--accent2);
+}
+.otpDigits {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  margin: 4px 0;
+}
+.otpDigit {
+  width: 46px;
+  height: 58px;
+  background: var(--surface2);
+  border: 1.5px solid var(--border-bright);
+  color: var(--text-bright);
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 700;
+  text-align: center;
+  border-radius: 2px;
+  outline: none;
+  caret-color: var(--accent);
+  transition:
+    border-color 0.12s,
+    background 0.12s;
+  -moz-appearance: textfield;
+}
+.otpDigit::-webkit-inner-spin-button,
+.otpDigit::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.otpDigit:focus {
+  border-color: var(--accent);
+  background: rgba(232, 255, 71, 0.04);
+}
+.otpDigit.filled {
+  border-color: var(--border-bright);
+}
+.otpDigit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.otpAttempts {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-align: center;
+}
+.otpAttemptsLow {
+  color: var(--warning);
+}
+.otpTimer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.otpTimerVal {
+  font-family: var(--font-display);
+  color: var(--text);
+}
+.otpResendBtn {
+  background: none;
+  border: none;
+  color: var(--accent2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+}
+.otpResendBtn:hover:not(:disabled) {
+  color: var(--accent);
+}
+.otpResendBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  text-decoration: none;
+}
+.otpBack {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
+  transition: color 0.1s;
+}
+.otpBack:hover {
+  color: var(--text);
+}
+.otpSuccess {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 20px 0;
+  text-align: center;
+}
+.otpSuccessIcon {
+  font-size: 40px;
+  color: var(--success);
+  line-height: 1;
+}
+.otpSuccessTitle {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-bright);
+  font-family: var(--font-display);
+  margin: 0;
+}
+.otpSuccessSub {
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.7;
+  margin: 0;
+}
+.warnBox {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--warning);
+  background: rgba(255, 170, 71, 0.06);
+  border-radius: 2px;
+  font-size: 12px;
+  color: var(--warning);
+  margin-bottom: 14px;
+}
+.warnBoxResend {
+  background: none;
+  border: none;
+  color: var(--accent2);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+  text-align: left;
+}
+.warnBoxResend:hover {
+  color: var(--accent);
+}

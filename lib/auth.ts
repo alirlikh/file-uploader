@@ -1,7 +1,3 @@
-/**
- * lib/auth.ts — Stateless JWT sessions in an HttpOnly cookie.
- * Payload: { sub: userId, email, name, isAdmin, plan }
- */
 import { SignJWT, jwtVerify, type JWTPayload } from "jose";
 import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
@@ -54,18 +50,15 @@ export function setSessionCookie(res: NextResponse, token: string) {
     path: "/",
   });
 }
-
 export function clearSessionCookie(res: NextResponse) {
   res.cookies.set(COOKIE, "", { maxAge: 0, path: "/" });
 }
-
 export async function getSession(
   req: NextRequest,
 ): Promise<SessionPayload | null> {
   const token = req.cookies.get(COOKIE)?.value;
   return token ? verifySession(token) : null;
 }
-
 export async function getServerSession(): Promise<SessionPayload | null> {
   const store = await cookies();
   const token = store.get(COOKIE)?.value;

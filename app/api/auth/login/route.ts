@@ -5,7 +5,7 @@ import { signSession, setSessionCookie } from "@/lib/auth";
 
 export async function POST(req: NextRequest) {
   try {
-    const { email, password } = (await req.json()) ?? {};
+    const { email, password } = await req.json().catch(() => ({}));
     if (!email || !password)
       return NextResponse.json(
         { error: "Email and password are required." },
@@ -25,6 +25,17 @@ export async function POST(req: NextRequest) {
         { error: "Invalid email or password." },
         { status: 401 },
       );
+
+    if (!user.is_verified)
+      return NextResponse.json(
+        {
+          error: "Please verify your email before signing in.",
+          unverified: true,
+          email: user.email,
+        },
+        { status: 403 },
+      );
+
     if (user.is_blocked)
       return NextResponse.json(
         { error: "Your account has been suspended. Contact support." },

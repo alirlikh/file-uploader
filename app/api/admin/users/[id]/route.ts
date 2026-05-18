@@ -5,9 +5,9 @@ import {
   setUserBlocked,
   setUserPlan,
   setUserAdmin,
-  PLANS,
+  PLAN_DEFAULTS,
+  type Plan,
 } from "@/lib/db";
-import { Plan } from "@/app/utils/types";
 
 export async function PATCH(
   req: NextRequest,
@@ -16,14 +16,11 @@ export async function PATCH(
   const session = await getSession(req);
   if (!session?.isAdmin)
     return NextResponse.json({ error: "Forbidden." }, { status: 403 });
-
   const { id } = await params;
   const target = await getUserById(id);
   if (!target)
     return NextResponse.json({ error: "User not found." }, { status: 404 });
-
-  const body = await req.json();
-  const { action } = body;
+  const { action, ...body } = await req.json();
 
   if (action === "block") {
     if (id === session.sub)
@@ -35,16 +32,17 @@ export async function PATCH(
   } else if (action === "unblock") {
     await setUserBlocked(id, false);
   } else if (action === "setPlan") {
-    const plan = body.plan as Plan;
-    if (!Object.keys(PLANS).includes(plan))
+    if (!Object.keys(PLAN_DEFAULTS).includes(body.plan))
       return NextResponse.json({ error: "Invalid plan." }, { status: 400 });
-    const customBytes =
-      plan === "custom" ? Number(body.customLimitBytes) || null : null;
-    await setUserPlan(id, plan, customBytes);
+    await setUserPlan(
+      id,
+      body.plan as Plan,
+      body.plan === "custom" ? Number(body.customLimitBytes) || null : null,
+    );
   } else if (action === "setAdmin") {
     if (id === session.sub)
       return NextResponse.json(
-        { error: "Cannot change your own admin status." },
+        { error: "Cannot change own admin status." },
         { status: 400 },
       );
     await setUserAdmin(id, !!body.isAdmin);
@@ -53,21 +51,15 @@ export async function PATCH(
   }
 
   const updated = await getUserById(id);
-  if (!updated)
-    return NextResponse.json(
-      { error: "User not found after update." },
-      { status: 500 },
-    );
-
   return NextResponse.json({
     user: {
-      id: updated.id,
-      email: updated.email,
-      name: updated.name,
-      isAdmin: updated.is_admin,
-      isBlocked: updated.is_blocked,
-      plan: updated.plan,
-      customLimitBytes: updated.custom_limit_bytes,
+      id: updated!.id,
+      email: updated!.email,
+      name: updated!.name,
+      isAdmin: updated!.is_admin,
+      isBlocked: updated!.is_blocked,
+      plan: updated!.plan,
+      customLimitBytes: updated!.custom_limit_bytes,
     },
   });
 }
