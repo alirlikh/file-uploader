@@ -7,10 +7,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { getPlanPrices, updatePlanPrice } from "@/lib/db";
 
-export async function GET(req: NextRequest) {
-  const session = await getSession(req);
-  if (!session?.isAdmin)
-    return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+export async function GET() {
   const prices = await getPlanPrices();
   return NextResponse.json({ prices });
 }
