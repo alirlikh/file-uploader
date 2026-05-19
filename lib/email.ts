@@ -11,7 +11,7 @@
 
 const RESEND_API = "https://api.resend.com/emails";
 const API_KEY = process.env.RESEND_API_KEY ?? "";
-const FROM = process.env.EMAIL_FROM ?? "VaultChunk <onboarding@resend.dev>";
+const FROM = process.env.EMAIL_FROM ?? "VaultChunk <noreply@kiwi-land.eu.cc>";
 const APP = "VaultChunk";
 
 export interface SendOtpOptions {
