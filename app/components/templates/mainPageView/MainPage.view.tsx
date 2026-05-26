@@ -326,6 +326,7 @@ function UploadTab({
   const [live, setLive] = useState<ChunkLive[]>([]);
   const [result, setResult] = useState<UploadResult | null>(null);
   const [err, setErr] = useState("");
+  const [comment, setComment] = useState("");
   // Speed + ETA — driven by real XHR progress events
   const [speedLabel, setSpeed] = useState("");
   const [etaLabel, setEta] = useState("");
@@ -576,7 +577,10 @@ function UploadTab({
       const completeRes = await fetch("/api/upload/complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ uploadId }),
+        body: JSON.stringify({
+          uploadId,
+          comment: comment.trim() || undefined,
+        }),
         signal: abort.signal,
       });
 
@@ -612,6 +616,7 @@ function UploadTab({
     setLive([]);
     setErr("");
     setBytesUp(0);
+    setComment("");
     if (ref.current) ref.current.value = "";
   };
 
@@ -668,6 +673,22 @@ function UploadTab({
         </div>
       )}
 
+      {state === "idle" && sel && (
+        <div className={styles.commentWrap}>
+          <label className={styles.commentLabel}>
+            NOTE (optional — visible to anyone with the download link)
+          </label>
+          <textarea
+            className={styles.commentInput}
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            placeholder="Add a message for the recipient…"
+            rows={3}
+            maxLength={500}
+          />
+          <span className={styles.commentCount}>{comment.length}/500</span>
+        </div>
+      )}
       {state === "idle" && sel && (
         <button className={styles.uploadBtn} onClick={upload}>
           <span>UPLOAD</span>
@@ -782,6 +803,44 @@ function UploadTab({
             <span className={styles.hashLabel}>SHA-256</span>
             <code className={styles.hashValue}>{result.fileHash}</code>
           </div>
+          {(result as UploadResult & { downloadPageUrl?: string })
+            .downloadPageUrl && (
+            <div className={styles.downloadPageRow}>
+              <span className={styles.downloadPageLabel}>
+                SHAREABLE DOWNLOAD LINK
+              </span>
+              <div className={styles.downloadPageLinkRow}>
+                <code className={styles.downloadPageUrl}>
+                  {
+                    (result as UploadResult & { downloadPageUrl?: string })
+                      .downloadPageUrl
+                  }
+                </code>
+                <button
+                  className={styles.copyPageLinkBtn}
+                  onClick={() => {
+                    navigator.clipboard.writeText(
+                      (result as UploadResult & { downloadPageUrl?: string })
+                        .downloadPageUrl!,
+                    );
+                  }}
+                >
+                  Copy
+                </button>
+                <a
+                  href={
+                    (result as UploadResult & { downloadPageUrl?: string })
+                      .downloadPageUrl
+                  }
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={styles.openPageBtn}
+                >
+                  Open ↗
+                </a>
+              </div>
+            </div>
+          )}
           <div className={styles.chunkList}>
             <p className={styles.sectionLabel}>CHUNK LINKS</p>
             {result.chunks.map((c) => (

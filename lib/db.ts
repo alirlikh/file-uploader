@@ -8,6 +8,7 @@
  *   2 — email OTP verification (pending_signups, add is_verified to users)
  *   3 — plan prices table (admin-editable), discount codes
  *   4 — payment OTP + cancel support
+ *   5 — file comments, download tokens, download count
  */
 
 import { Pool, type PoolClient } from "pg";
@@ -130,6 +131,9 @@ const MIGRATIONS: string[] = [
     file_hash         TEXT        NOT NULL,
     mime_type         TEXT        NOT NULL,
     total_chunks      INTEGER     NOT NULL,
+    comment           TEXT,
+    download_token    TEXT        UNIQUE,
+    download_count    INTEGER     NOT NULL DEFAULT 0,
     uploaded_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
   CREATE TABLE IF NOT EXISTS chunks (
@@ -367,6 +371,9 @@ export interface DbFile {
   file_hash: string;
   mime_type: string;
   total_chunks: number;
+  comment: string | null;
+  download_token: string | null;
+  download_count: number;
   uploaded_at: string;
 }
 export interface DbChunk {
@@ -531,6 +538,8 @@ export interface CreateFileInput {
   fileSizeBytes: number;
   fileHash: string;
   mimeType: string;
+  comment?: string | null;
+  downloadToken?: string;
   chunks: {
     id: string;
     chunkIndex: number;
@@ -543,8 +552,8 @@ export interface CreateFileInput {
 export async function createFile(input: CreateFileInput): Promise<DbFile> {
   return withTransaction(async (client) => {
     await client.query(
-      `INSERT INTO files (id,user_id,original_filename,file_size_bytes,file_hash,mime_type,total_chunks)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      `INSERT INTO files (id,user_id,original_filename,file_size_bytes,file_hash,mime_type,total_chunks,comment,download_token)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
       [
         input.id,
         input.userId,
@@ -553,6 +562,8 @@ export async function createFile(input: CreateFileInput): Promise<DbFile> {
         input.fileHash,
         input.mimeType,
         input.chunks.length,
+        input.comment ?? null,
+        input.downloadToken ?? null,
       ],
     );
     if (input.chunks.length > 0) {
@@ -592,6 +603,51 @@ export const deleteFile = async (id: string, userId: string) =>
       userId,
     ])
   ).rowCount! > 0;
+
+// ── DOWNLOAD PAGE QUERIES ────────────────────────────────────────────────────
+
+export async function getFileByToken(
+  token: string,
+): Promise<(DbFile & { chunks: DbChunk[] }) | null> {
+  const [file] = await query<DbFile>(
+    "SELECT * FROM files WHERE download_token=$1",
+    [token],
+  );
+  if (!file) return null;
+  const chunks = await query<DbChunk>(
+    "SELECT * FROM chunks WHERE file_id=$1 ORDER BY chunk_index",
+    [file.id],
+  );
+  return { ...file, chunks };
+}
+
+export async function getFileUploaderName(
+  fileId: string,
+): Promise<string | null> {
+  const [row] = await query<{ name: string }>(
+    "SELECT u.name FROM users u JOIN files f ON f.user_id=u.id WHERE f.id=$1",
+    [fileId],
+  );
+  return row?.name ?? null;
+}
+
+export async function incrementDownloadCount(fileId: string): Promise<void> {
+  await query("UPDATE files SET download_count=download_count+1 WHERE id=$1", [
+    fileId,
+  ]);
+}
+
+export async function updateFileComment(
+  fileId: string,
+  userId: string,
+  comment: string | null,
+): Promise<boolean> {
+  const r = await pool.query(
+    "UPDATE files SET comment=$1 WHERE id=$2 AND user_id=$3",
+    [comment, fileId, userId],
+  );
+  return (r.rowCount ?? 0) > 0;
+}
 
 // ── QUOTA ─────────────────────────────────────────────────────────────────────
 export const getDailyUsed = async (userId: string) => {

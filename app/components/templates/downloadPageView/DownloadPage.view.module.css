@@ -1,0 +1,467 @@
+:root {
+  --bg: #0a0b0d;
+  --surface: #0f1114;
+  --surface2: #161a1f;
+  --border: #252b33;
+  --border-bright: #3a4452;
+  --accent: #e8ff47;
+  --accent2: #47ffd4;
+  --text: #c8d4e0;
+  --text-dim: #5a6a7a;
+  --text-bright: #eaf2ff;
+  --error: #ff4747;
+  --warning: #ffaa47;
+  --success: #47ff8a;
+  --font-mono: "IBM Plex Mono", "Courier New", monospace;
+  --font-display: "Space Mono", "IBM Plex Mono", monospace;
+}
+
+/* ── Layout ─────────────────────────────────────────────────────────────────── */
+.main {
+  min-height: 100vh;
+  background: var(--bg);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 40px 16px 80px;
+  position: relative;
+  font-family: var(--font-mono);
+  color: var(--text);
+  overflow-x: hidden;
+}
+.grid {
+  position: fixed;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(232, 255, 71, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(232, 255, 71, 0.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+  pointer-events: none;
+  z-index: 0;
+}
+.container {
+  width: 100%;
+  max-width: 640px;
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* ── Brand ──────────────────────────────────────────────────────────────────── */
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+  margin-bottom: 8px;
+}
+.brandIcon {
+  font-size: 20px;
+  color: var(--accent);
+}
+.brandText {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  color: var(--text-bright);
+}
+
+/* ── File card ──────────────────────────────────────────────────────────────── */
+.fileCard {
+  background: var(--surface);
+  border: 1px solid var(--border-bright);
+  border-top: 3px solid var(--accent);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.fileCardTop {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 24px;
+  border-bottom: 1px solid var(--border);
+}
+.fileIcon {
+  font-size: 40px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.fileMeta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.fileName {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-bright);
+  font-family: var(--font-display);
+  word-break: break-all;
+  margin: 0;
+  line-height: 1.3;
+}
+.fileTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.tag {
+  font-size: 11px;
+  padding: 3px 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-bright);
+  color: var(--text-dim);
+  border-radius: 2px;
+}
+
+/* ── Comment box ────────────────────────────────────────────────────────────── */
+.commentBox {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(232, 255, 71, 0.03);
+}
+.commentIcon {
+  font-size: 18px;
+  flex-shrink: 0;
+  padding-top: 1px;
+}
+.commentLabel {
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: var(--text-dim);
+  margin: 0 0 6px;
+}
+.commentText {
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.7;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ── Meta row ───────────────────────────────────────────────────────────────── */
+.metaRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  border-top: 1px solid var(--border);
+}
+.metaItem {
+  flex: 1;
+  min-width: 140px;
+  padding: 14px 24px;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.metaItem:last-child {
+  border-right: none;
+}
+.metaLabel {
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  color: var(--text-dim);
+}
+.metaVal {
+  font-size: 12px;
+  color: var(--text);
+}
+.metaHash {
+  font-size: 11px;
+  color: var(--accent2);
+  font-family: var(--font-mono);
+}
+
+/* ── Download section ───────────────────────────────────────────────────────── */
+.dlSection {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.dlBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 20px;
+  background: var(--accent);
+  color: var(--bg);
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  border-radius: 2px;
+  transition:
+    background 0.1s,
+    transform 0.1s;
+}
+.dlBtn:hover {
+  background: #f0ff6a;
+  transform: translateY(-1px);
+}
+.dlBtn:active {
+  transform: translateY(0);
+}
+.dlBtnSecondary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 14px;
+  background: transparent;
+  border: 1px solid var(--border-bright);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: 2px;
+  transition:
+    border-color 0.1s,
+    color 0.1s;
+}
+.dlBtnSecondary:hover {
+  border-color: var(--accent2);
+  color: var(--accent2);
+}
+
+/* ── Progress ───────────────────────────────────────────────────────────────── */
+.progress {
+  background: var(--surface);
+  border: 1px solid var(--border-bright);
+  border-radius: 2px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.speedBar {
+  display: flex;
+  align-items: stretch;
+  background: var(--surface2);
+  border: 1px solid var(--border-bright);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.speedItem {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 10px;
+  gap: 4px;
+}
+.speedLabel {
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  color: var(--text-dim);
+}
+.speedVal {
+  font-size: 16px;
+  color: var(--text-bright);
+  font-weight: 700;
+  font-family: var(--font-display);
+}
+.speedDivider {
+  width: 1px;
+  background: var(--border);
+  flex-shrink: 0;
+}
+
+.progressHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.progressTitle {
+  font-size: 12px;
+  color: var(--text-dim);
+  letter-spacing: 0.05em;
+}
+.progressPct {
+  font-size: 14px;
+  color: var(--accent);
+  font-weight: 700;
+}
+.progressBar {
+  height: 5px;
+  background: var(--surface2);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.progressFill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent2), var(--accent));
+  border-radius: 2px;
+  transition: width 0.4s ease;
+}
+.progressNote {
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.6;
+  margin: 0;
+}
+
+/* ── Ready ──────────────────────────────────────────────────────────────────── */
+.readyBox {
+  background: var(--surface);
+  border: 1px solid rgba(71, 255, 138, 0.3);
+  border-radius: 2px;
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+}
+.readyIcon {
+  font-size: 36px;
+  color: var(--success);
+  line-height: 1;
+}
+.readyTitle {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-bright);
+  margin: 0;
+}
+.readySub {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin: 0;
+  line-height: 1.7;
+}
+
+/* ── Error ──────────────────────────────────────────────────────────────────── */
+.errorBox {
+  background: var(--surface);
+  border: 1px solid var(--error);
+  border-radius: 2px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.errorHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.errorIcon {
+  font-size: 16px;
+  color: var(--error);
+  flex-shrink: 0;
+}
+.errorTitle {
+  font-size: 13px;
+  color: var(--error);
+  font-weight: 600;
+}
+.errorMsg {
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.7;
+  margin: 0;
+  padding: 12px 14px;
+  background: rgba(255, 71, 71, 0.06);
+  border: 1px solid rgba(255, 71, 71, 0.15);
+  border-radius: 2px;
+}
+
+/* ── Not found / center ─────────────────────────────────────────────────────── */
+.center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+  gap: 12px;
+  color: var(--text-dim);
+  position: relative;
+  z-index: 1;
+}
+.centerText {
+  font-size: 13px;
+}
+.notFound {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+  gap: 16px;
+  text-align: center;
+  position: relative;
+  z-index: 1;
+}
+.notFoundIcon {
+  font-size: 48px;
+  opacity: 0.4;
+}
+.notFoundTitle {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-bright);
+  font-family: var(--font-display);
+  margin: 0;
+}
+.notFoundSub {
+  font-size: 13px;
+  color: var(--text-dim);
+  margin: 0;
+  line-height: 1.7;
+}
+.homeLink {
+  font-size: 12px;
+  color: var(--accent2);
+  text-decoration: none;
+  margin-top: 8px;
+}
+.homeLink:hover {
+  color: var(--accent);
+}
+
+/* ── Footer ─────────────────────────────────────────────────────────────────── */
+.footer {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-align: center;
+  margin: 0;
+}
+.footerLink {
+  color: var(--accent2);
+  text-decoration: none;
+}
+.footerLink:hover {
+  color: var(--accent);
+}
+
+/* ── Spinner ─────────────────────────────────────────────────────────────────── */
+.spinDot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent2);
+  animation: blink 0.8s ease-in-out infinite;
+}
+@keyframes blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.2;
+  }
+}
